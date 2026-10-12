@@ -20,7 +20,10 @@ from sources.base import (
 )
 
 NOTION = BrandSpec(id=1, name="Notion", keywords=("Notion", "notion.so"), exclude=("Notion Ink", "Notion of"))
-OBSIDIAN = BrandSpec(id=2, name="Obsidian", keywords=("Obsidian",), exclude=("Obsidian Entertainment",))
+OBSIDIAN = BrandSpec(
+    id=2, name="Obsidian", keywords=("Obsidian",), exclude=("Obsidian Entertainment", "Obsidian's games"),
+    exclude_if=("Fallout", "The Outer Worlds"),
+)
 CLICKUP = BrandSpec(id=3, name="ClickUp", keywords=("clickup",))
 
 
@@ -47,6 +50,10 @@ def test_html_to_text_empty() -> None:
         ("Obsidian Entertainment shipped a game", OBSIDIAN, False),
         ("Obsidian sync is great", OBSIDIAN, True),
         ("an obsidian blade", OBSIDIAN, False),
+        ("Obsidian made Fallout: New Vegas", OBSIDIAN, False),  # exclude_if drops the whole mention
+        ("I loved The Outer Worlds by Obsidian", OBSIDIAN, False),
+        ("Obsidian's games are buggy", OBSIDIAN, False),
+        ("my obsidian vault has a fallout shelter note", OBSIDIAN, False),  # lowercase 'obsidian' never matched
         ("Clickup is slow", CLICKUP, True),  # lowercase keyword matches any case
         ("CLICKUP is slow", CLICKUP, True),
     ],
@@ -56,7 +63,9 @@ def test_matches_brand(text: str, brand: BrandSpec, expected: bool) -> None:
 
 
 def test_split_keywords() -> None:
-    assert split_keywords(["Notion", "-Notion Ink", "notion.so"]) == (("Notion", "notion.so"), ("Notion Ink",))
+    assert split_keywords(["Notion", "-Notion Ink", "notion.so", "!Fallout"]) == (
+        ("Notion", "notion.so"), ("Notion Ink",), ("Fallout",),
+    )
 
 
 def test_to_utc_naive() -> None:

@@ -48,6 +48,11 @@ class Settings:
     nlp_zero_shot_max_tokens: int
     nlp_device: str
     feature_threshold: float
+    topic_min_complaints: int
+    topic_min_size: int
+    topic_outlier_similarity: float
+    priority_volume_threshold: int
+    priority_pain_threshold: float
     alert_trend_ratio: float
     alert_min_mentions: int
     reddit_client_id: str
@@ -89,6 +94,11 @@ def load_settings() -> Settings:
         nlp_zero_shot_max_tokens=_get_int("NLP_ZERO_SHOT_MAX_TOKENS", 256),
         nlp_device=os.getenv("NLP_DEVICE", "auto").lower(),
         feature_threshold=_get_float("FEATURE_THRESHOLD", 0.5),
+        topic_min_complaints=_get_int("TOPIC_MIN_COMPLAINTS", 30),
+        topic_min_size=_get_int("TOPIC_MIN_SIZE", 5),
+        topic_outlier_similarity=_get_float("TOPIC_OUTLIER_SIMILARITY", 0.5),
+        priority_volume_threshold=_get_int("PRIORITY_VOLUME_THRESHOLD", 5),
+        priority_pain_threshold=_get_float("PRIORITY_PAIN_THRESHOLD", 0.15),
         alert_trend_ratio=_get_float("ALERT_TREND_RATIO", 2.0),
         alert_min_mentions=_get_int("ALERT_MIN_MENTIONS", 5),
         reddit_client_id=os.getenv("REDDIT_CLIENT_ID", ""),

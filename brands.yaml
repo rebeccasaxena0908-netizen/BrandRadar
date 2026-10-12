@@ -6,6 +6,8 @@
 # exclude   Phrases removed from the text before matching, using the same case rule, e.g.
 #           "Obsidian Entertainment" so the game studio doesn't count as Obsidian.
 #           Stored in brands.keywords with a leading "-".
+# exclude_if  Context words that drop the whole mention when present (same case rule), e.g. "Fallout"
+#           for Obsidian the game studio. Stored in brands.keywords with a leading "!".
 # app_store_id / play_store_id   Verified live on 2026-10-12 (iTunes lookup API / google-play-scraper).
 # features  feature name -> synonyms. A mention only gets a feature when the name or a synonym appears
 #           as a whole word (case-insensitive; simple endings like -s/-ed/-ing also match); the zero-shot
@@ -43,7 +45,11 @@ brands:
   - name: Obsidian
     is_own: false
     keywords: [Obsidian, obsidian.md]
-    exclude: [Obsidian Entertainment, Obsidian Systems, Obsidian Security]
+    exclude: [Obsidian Entertainment, Obsidian Systems, Obsidian Security, Obsidian's games, Obsidian game,
+              Obsidian games, Obsidian's game, Obsidian studio, Obsidian Software]
+    # the game studio: drop any mention that also names one of its games
+    exclude_if: [Fallout, The Outer Worlds, Outer Worlds, Pillars of Eternity, Avowed, Pentiment, KOTOR,
+                 Knights of the Old Republic, Neverwinter Nights, Bethesda]
     app_store_id: "1557175442"      # Obsidian - Connected Notes — Dynalist Inc.
     play_store_id: md.obsidian      # Obsidian — Dynalist Inc.
     features:

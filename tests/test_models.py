@@ -27,7 +27,7 @@ def schema_columns(body: str) -> set[str]:
     cols: set[str] = set()
     for line in body.splitlines():
         words = line.strip().split()
-        if words and words[0] not in NON_COLUMN:
+        if words and words[0] not in NON_COLUMN and not words[0].startswith("--"):  # skip SQL comments
             cols.add(words[0])
     return cols
 

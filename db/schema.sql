@@ -51,6 +51,13 @@ CREATE TABLE IF NOT EXISTS topics (
   keywords    JSON         NULL,
   first_seen  DATETIME     NULL,
   last_seen   DATETIME     NULL,
+  -- priority snapshot, written by nlp/priority.py
+  volume_7d       INT UNSIGNED NOT NULL DEFAULT 0,
+  volume_prev_7d  INT UNSIGNED NOT NULL DEFAULT 0,
+  pain            FLOAT        NULL,
+  trend           FLOAT        NULL,
+  quadrant        VARCHAR(16)  NULL,
+  scored_at       DATETIME     NULL,
   PRIMARY KEY (id),
   KEY ix_topics_brand (brand_id),
   CONSTRAINT fk_topics_brand FOREIGN KEY (brand_id)

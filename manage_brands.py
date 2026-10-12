@@ -3,6 +3,9 @@
     python manage_brands.py            # insert new brands, update changed ones
     python manage_brands.py --list     # show what is in the database
     python manage_brands.py --prune    # also delete brands no longer in the YAML (and their mentions!)
+    python manage_brands.py --recheck-mentions          # list stored keyword-search mentions that
+                                                        # no longer match (after changing excludes)
+    python manage_brands.py --recheck-mentions --apply  # ...and delete them (analysis rows cascade)
 """
 
 from __future__ import annotations
@@ -19,7 +22,8 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from config import PROJECT_ROOT
-from db.models import Brand
+from db.models import Brand, Mention
+from sources.base import KEYWORD_SOURCES, BrandSpec, matches_brand
 
 DEFAULT_FILE = PROJECT_ROOT / "brands.yaml"
 
@@ -30,12 +34,13 @@ class BrandEntry:
     is_own: bool = False
     keywords: list[str] = field(default_factory=list)
     exclude: list[str] = field(default_factory=list)
+    exclude_if: list[str] = field(default_factory=list)
     app_store_id: str | None = None
     play_store_id: str | None = None
     features: dict[str, list[str]] = field(default_factory=dict)  # feature -> synonyms
 
     def stored_keywords(self) -> list[str]:
-        return self.keywords + [f"-{e}" for e in self.exclude]
+        return self.keywords + [f"-{e}" for e in self.exclude] + [f"!{e}" for e in self.exclude_if]
 
 
 def _str_list(value: Any, what: str) -> list[str]:
@@ -73,14 +78,15 @@ def load_yaml(path: Path) -> list[BrandEntry]:
             is_own=bool(raw.get("is_own", False)),
             keywords=_str_list(raw.get("keywords"), f"{name}.keywords"),
             exclude=_str_list(raw.get("exclude"), f"{name}.exclude"),
+            exclude_if=_str_list(raw.get("exclude_if"), f"{name}.exclude_if"),
             app_store_id=str(raw["app_store_id"]) if raw.get("app_store_id") else None,
             play_store_id=str(raw["play_store_id"]) if raw.get("play_store_id") else None,
             features=_features(raw.get("features"), name),
         )
         if not entry.keywords:
             raise ValueError(f"{name}: needs at least one keyword")
-        if any(k.startswith("-") for k in entry.keywords):
-            raise ValueError(f"{name}: put exclusions under 'exclude', not '-keyword'")
+        if any(k.startswith(("-", "!")) for k in entry.keywords):
+            raise ValueError(f"{name}: put exclusions under 'exclude' / 'exclude_if', not '-keyword' or '!keyword'")
         entries.append(entry)
 
     names = [e.name.lower() for e in entries]
@@ -127,6 +133,20 @@ def sync_brands(session: Session, entries: Sequence[BrandEntry], prune: bool = F
     return report
 
 
+def recheck_mentions(session: Session, apply: bool = False) -> list[tuple[str, Mention]]:
+    """Stored mentions from keyword-search sources that no longer match their brand's keywords."""
+    stale: list[tuple[str, Mention]] = []
+    for brand in session.scalars(select(Brand)):
+        spec = BrandSpec.from_model(brand)
+        query = select(Mention).where(Mention.brand_id == brand.id, Mention.source.in_(KEYWORD_SOURCES))
+        stale += [(brand.name, m) for m in session.scalars(query) if not matches_brand(m.text, spec)]
+    if apply:
+        for _, mention in stale:
+            session.delete(mention)
+        session.flush()
+    return stale
+
+
 def list_brands(session: Session) -> None:
     for b in session.scalars(select(Brand).order_by(Brand.is_own.desc(), Brand.name)):
         own = "own" if b.is_own else "competitor"
@@ -141,6 +161,11 @@ def main(argv: Sequence[str] | None = None) -> int:
     parser.add_argument("--file", type=Path, default=DEFAULT_FILE, help="YAML file (default brands.yaml)")
     parser.add_argument("--list", action="store_true", help="list brands in the database and exit")
     parser.add_argument("--prune", action="store_true", help="delete brands that are not in the YAML")
+    parser.add_argument(
+        "--recheck-mentions", action="store_true",
+        help="after syncing, list stored HN/Reddit mentions that no longer match their brand",
+    )
+    parser.add_argument("--apply", action="store_true", help="with --recheck-mentions: delete them")
     args = parser.parse_args(argv)
 
     from db.session import get_session
@@ -163,6 +188,18 @@ def main(argv: Sequence[str] | None = None) -> int:
             print(f"{key:>9}: {', '.join(names)}")
     if report["orphaned"]:
         print("           (in the database but not in the YAML; use --prune to delete them and their mentions)")
+
+    if args.recheck_mentions:
+        with get_session() as session:
+            stale = recheck_mentions(session, apply=args.apply)
+            verb = "Deleted" if args.apply else "Would delete"
+            print(f"\n{verb} {len(stale)} mention(s) that no longer match their brand:")
+            for brand, m in stale:
+                print(f"  [{brand}/{m.source} {m.external_id}] {' '.join(m.text.split())[:110]}")
+            if stale and not args.apply:
+                print("Run again with --apply to delete them (their analysis rows are removed too).")
+    elif args.apply:
+        print("--apply does nothing without --recheck-mentions")
     return 0
 
 

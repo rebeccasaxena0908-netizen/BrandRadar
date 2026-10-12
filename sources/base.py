@@ -27,6 +27,9 @@ if TYPE_CHECKING:
 log = logging.getLogger(__name__)
 
 
+# Sources found by keyword search (as opposed to per-app reviews), so brand matching applies to them.
+KEYWORD_SOURCES = ("hackernews", "reddit")
+
 # ---------------------------------------------------------------- data types
 
 
@@ -39,19 +42,21 @@ class BrandSpec:
     is_own: bool = False
     keywords: tuple[str, ...] = ()
     exclude: tuple[str, ...] = ()
+    exclude_if: tuple[str, ...] = ()
     app_store_id: str | None = None
     play_store_id: str | None = None
     features: tuple[str, ...] = ()
 
     @classmethod
     def from_model(cls, brand: BrandModel) -> BrandSpec:
-        include, exclude = split_keywords(brand.keywords or [])
+        include, exclude, exclude_if = split_keywords(brand.keywords or [])
         return cls(
             id=brand.id,
             name=brand.name,
             is_own=bool(brand.is_own),
             keywords=include,
             exclude=exclude,
+            exclude_if=exclude_if,
             app_store_id=brand.app_store_id,
             play_store_id=brand.play_store_id,
             features=tuple(brand.features or []),
@@ -138,11 +143,13 @@ def html_to_text(html: str | None) -> str:
     return "\n".join(line for line in lines if line)
 
 
-def split_keywords(stored: list[str]) -> tuple[tuple[str, ...], tuple[str, ...]]:
-    """`brands.keywords` holds search keywords plus exclude phrases prefixed with '-'."""
-    include = tuple(k for k in stored if not k.startswith("-"))
+def split_keywords(stored: list[str]) -> tuple[tuple[str, ...], tuple[str, ...], tuple[str, ...]]:
+    """`brands.keywords` holds search keywords, exclude phrases prefixed with '-' (removed before
+    matching) and exclude_if context words prefixed with '!' (drop the whole mention)."""
+    include = tuple(k for k in stored if not k.startswith(("-", "!")))
     exclude = tuple(k[1:] for k in stored if k.startswith("-"))
-    return include, exclude
+    exclude_if = tuple(k[1:] for k in stored if k.startswith("!"))
+    return include, exclude, exclude_if
 
 
 def _phrase_pattern(phrase: str) -> re.Pattern[str]:
@@ -152,7 +159,10 @@ def _phrase_pattern(phrase: str) -> re.Pattern[str]:
 
 
 def matches_brand(text: str, brand: BrandSpec) -> bool:
-    """True if a keyword appears as a whole word once the exclude phrases are removed."""
+    """True if a keyword appears as a whole word once the exclude phrases are removed,
+    and none of the exclude_if context words appear (e.g. "Fallout" for Obsidian the studio)."""
+    if any(_phrase_pattern(word).search(text) for word in brand.exclude_if):
+        return False
     for phrase in brand.exclude:
         text = _phrase_pattern(phrase).sub(" ", text)
     return any(_phrase_pattern(k).search(text) for k in brand.keywords)

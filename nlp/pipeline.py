@@ -4,6 +4,8 @@
     python -m nlp.pipeline --brand Notion --limit 50
     python -m nlp.pipeline --reanalyse --brand Notion    # redo one brand
     python -m nlp.pipeline --reanalyse --model-version outdated   # redo rows from older models/pipeline
+    python -m nlp.pipeline --reanalyse --category praise --sentiment negative   # redo matching rows only
+    python -m nlp.pipeline --restamp OLD_VERSION         # mark rows a version change cannot affect as current
     python -m nlp.pipeline --download                    # only download the models
 
 --reanalyse deletes the matching analysis rows first; anything not re-analysed (e.g. a crash)
@@ -21,7 +23,7 @@ from collections.abc import Sequence
 from dataclasses import dataclass, field
 from typing import Any
 
-from sqlalchemy import delete, or_, select
+from sqlalchemy import delete, or_, select, update
 from sqlalchemy.orm import Session, sessionmaker
 
 from config import settings
@@ -35,7 +37,8 @@ log = logging.getLogger("nlp.pipeline")
 # Bump when labels, hypotheses, cleaning or thresholds change, so old rows count as outdated.
 # 2: direct inference, bucketed padding, zero-shot truncated to 256 tokens
 # 3: keyword-gated features with synonyms, 'general discussion' category
-PIPELINE_VERSION = 3
+# 4: "praise" is not allowed with negative sentiment (next-best category is used)
+PIPELINE_VERSION = 4
 
 # Stored label -> hypothesis phrase. Descriptive phrases work much better for zero-shot NLI.
 CATEGORY_HYPOTHESES: dict[str, str] = {
@@ -92,6 +95,16 @@ def top_label(scores: Scores) -> str | None:
     return max(scores, key=scores.__getitem__) if scores else None
 
 
+def pick_category(scores: Scores, sentiment: str | None) -> str | None:
+    """Best category label; "praise" is skipped for negative mentions ("used to be great, but...")."""
+    phrase_to_label = {v: k for k, v in CATEGORY_HYPOTHESES.items()}
+    ranked = [phrase_to_label.get(p, p) for p in sorted(scores, key=scores.__getitem__, reverse=True)]
+    for label in ranked:
+        if not (label == "praise" and sentiment == "negative"):
+            return label
+    return None
+
+
 def best_feature(scores: Scores, threshold: float) -> str | None:
     label = top_label(scores)
     return label if label is not None and scores[label] >= threshold else None
@@ -116,7 +129,6 @@ def analyse_batch(
     texts = [m.text for m in items]
     sentiments = analyzer.sentiment(texts)
     emotions = analyzer.emotion(texts)
-    phrase_to_label = {v: k for k, v in CATEGORY_HYPOTHESES.items()}
     categories = analyzer.zero_shot(texts, list(CATEGORY_HYPOTHESES.values()), CATEGORY_TEMPLATE, False)
 
     # Features: keyword gate first, then zero-shot confirms and picks among the matched candidates.
@@ -134,14 +146,14 @@ def analyse_batch(
 
     rows = []
     for m, sent, emo, cat in zip(items, sentiments, emotions, categories):
-        category_phrase = top_label(cat)
+        sentiment = top_label(sent)
         rows.append({
             "mention_id": m.id,
-            "sentiment": top_label(sent),
+            "sentiment": sentiment,
             "sentiment_score": signed_sentiment(sent),
             "emotion": top_label(emo),
             "emotion_scores": {k: round(v, 4) for k, v in sorted(emo.items())},
-            "category": phrase_to_label.get(category_phrase or "", category_phrase),
+            "category": pick_category(cat, sentiment),
             "feature": features.get(m.id),
             "topic_id": None,
             "model_version": version,
@@ -165,15 +177,33 @@ def brand_ids(session: Session, names: Sequence[str] | None) -> list[int] | None
 
 
 def delete_for_reanalysis(
-    session: Session, brands: list[int] | None, version_filter: str | None, current_version: str
+    session: Session,
+    brands: list[int] | None,
+    version_filter: str | None,
+    current_version: str,
+    category: str | None = None,
+    sentiment: str | None = None,
 ) -> int:
     stmt = delete(Analysis)
+    if category:
+        stmt = stmt.where(Analysis.category == category)
+    if sentiment:
+        stmt = stmt.where(Analysis.sentiment == sentiment)
     if brands is not None:
         stmt = stmt.where(Analysis.mention_id.in_(select(Mention.id).where(Mention.brand_id.in_(brands))))
     if version_filter == "outdated":
         stmt = stmt.where(or_(Analysis.model_version != current_version, Analysis.model_version.is_(None)))
     elif version_filter:
         stmt = stmt.where(Analysis.model_version == version_filter)
+    return session.execute(stmt.execution_options(synchronize_session=False)).rowcount or 0
+
+
+def restamp(session: Session, old_version: str, new_version: str) -> int:
+    """Relabel rows still at `old_version` as `new_version` without recomputing them.
+
+    Only valid when the version change provably cannot alter those rows (e.g. v4's praise rule only
+    affects praise+negative rows, which are re-analysed first with --category/--sentiment)."""
+    stmt = update(Analysis).where(Analysis.model_version == old_version).values(model_version=new_version)
     return session.execute(stmt.execution_options(synchronize_session=False)).rowcount or 0
 
 
@@ -211,6 +241,8 @@ def run_pipeline(
     limit: int | None = None,
     reanalyse: bool = False,
     model_version: str | None = None,
+    category: str | None = None,
+    sentiment: str | None = None,
     batch_size: int | None = None,
     threshold: float | None = None,
     progress: bool = False,
@@ -223,7 +255,9 @@ def run_pipeline(
     with factory() as session:
         ids = brand_ids(session, brands)
         if reanalyse:
-            stats.deleted = delete_for_reanalysis(session, ids, model_version, stats.model_version)
+            stats.deleted = delete_for_reanalysis(
+                session, ids, model_version, stats.model_version, category=category, sentiment=sentiment
+            )
             session.commit()
         pending = select_pending(session, ids, limit)
         features_by_brand = load_features(session)
@@ -278,12 +312,18 @@ def main(argv: Sequence[str] | None = None) -> int:
         "--model-version", metavar="V",
         help="with --reanalyse: only rows with this model_version, or 'outdated' for anything not current",
     )
+    parser.add_argument("--category", help="with --reanalyse: only rows with this category")
+    parser.add_argument("--sentiment", help="with --reanalyse: only rows with this sentiment")
+    parser.add_argument(
+        "--restamp", metavar="OLD_VERSION",
+        help="set model_version of rows at OLD_VERSION to the current version, without recomputing",
+    )
     parser.add_argument("--batch-size", type=int, help=f"default {settings.nlp_batch_size}")
     parser.add_argument("--download", action="store_true", help="download/load the models and exit")
     parser.add_argument("-q", "--quiet", action="store_true", help="no progress bar")
     args = parser.parse_args(argv)
-    if args.model_version and not args.reanalyse:
-        parser.error("--model-version only makes sense with --reanalyse")
+    if (args.model_version or args.category or args.sentiment) and not args.reanalyse:
+        parser.error("--model-version/--category/--sentiment only make sense with --reanalyse")
 
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)-7s %(name)s: %(message)s", datefmt="%H:%M:%S")
     for noisy in ("transformers", "httpx", "huggingface_hub"):
@@ -301,9 +341,18 @@ def main(argv: Sequence[str] | None = None) -> int:
 
     from db.session import get_session_factory
 
+    if args.restamp:
+        current = build_model_version(analyzer.model_hashes())
+        with get_session_factory()() as session:
+            n = restamp(session, args.restamp, current)
+            session.commit()
+        print(f"Restamped {n} rows: {args.restamp} -> {current}")
+        return 0
+
     stats = run_pipeline(
         get_session_factory(), analyzer, brands=args.brand, limit=args.limit, reanalyse=args.reanalyse,
-        model_version=args.model_version, batch_size=args.batch_size, progress=not args.quiet,
+        model_version=args.model_version, category=args.category, sentiment=args.sentiment,
+        batch_size=args.batch_size, progress=not args.quiet,
     )
     print(f"\nDevice:         {stats.device}")
     print(f"Model version:  {stats.model_version}")

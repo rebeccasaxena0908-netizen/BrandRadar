@@ -92,3 +92,49 @@ def test_sync_adds_then_updates(tmp_path: Path) -> None:
 def test_invalid_yaml_rejected(tmp_path: Path, text: str, message: str) -> None:
     with pytest.raises(ValueError, match=message):
         load_yaml(write(tmp_path, text))
+
+
+def test_exclude_if_stored_with_bang(tmp_path: Path) -> None:
+    text = "brands:\n  - name: A\n    is_own: true\n    keywords: [Aa]\n    exclude_if: [Fallout]\n"
+    assert load_yaml(write(tmp_path, text))[0].stored_keywords() == ["Aa", "!Fallout"]
+
+
+def test_recheck_mentions_finds_and_deletes_stale(tmp_path: Path) -> None:
+    from datetime import datetime
+
+    from sqlalchemy import create_engine
+
+    from db.models import Base, Mention
+    from manage_brands import recheck_mentions
+
+    from sqlalchemy import event
+
+    from db.models import Analysis
+
+    engine = create_engine("sqlite://")
+
+    @event.listens_for(engine, "connect")
+    def _fk_on(conn, _):  # type: ignore[no-untyped-def]
+        conn.execute("PRAGMA foreign_keys=ON")  # SQLite only cascades with this, like MySQL always does
+
+    Base.metadata.create_all(engine)
+    factory = sessionmaker(bind=engine)
+    with factory() as s:
+        brand = Brand(name="Obsidian", is_own=True, keywords=["Obsidian", "!Fallout"])
+        s.add(brand)
+        s.flush()
+        when = datetime(2026, 10, 5)
+        s.add_all([
+            Mention(brand_id=brand.id, source="hackernews", external_id="1", text="Obsidian sync is great", created_at=when),
+            Mention(brand_id=brand.id, source="hackernews", external_id="2", text="Obsidian made Fallout NV", created_at=when),
+            Mention(brand_id=brand.id, source="appstore", external_id="3", text="Fallout of an update", created_at=when),
+        ])
+        s.flush()
+        s.add_all(Analysis(mention_id=m.id, sentiment="neutral") for m in s.query(Mention))  # cascade must work
+        s.commit()
+        assert [m.external_id for _, m in recheck_mentions(s)] == ["2"]  # store reviews are never rechecked
+        assert s.query(Mention).count() == 3  # dry run deletes nothing
+        recheck_mentions(s, apply=True)
+        s.commit()
+        assert sorted(m.external_id for m in s.query(Mention)) == ["1", "3"]
+        assert s.query(Analysis).count() == 2  # the stale mention's analysis row went with it

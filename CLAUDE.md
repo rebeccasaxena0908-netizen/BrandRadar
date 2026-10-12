@@ -41,6 +41,9 @@ python fetch.py --csv file.csv --brand Notion                       # CSV import
 python -m nlp.pipeline [--brand X] [--limit N]                      # analyse mentions without analysis
 python -m nlp.pipeline --reanalyse [--brand X] [--model-version V|outdated]
 python -m nlp.pipeline --download                                   # fetch the models into the HF cache
+python -m nlp.topics [--brand X]                                    # cluster complaints, rebuild topic_daily
+python -m nlp.priority [--as-of DATE] [--report]                    # priority snapshot + spike alerts
+python manage_brands.py --recheck-mentions [--apply]                # after changing excludes
 ```
 
 ## Layout notes
@@ -61,6 +64,11 @@ python -m nlp.pipeline --download                                   # fetch the 
   synonyms in `brands.yaml`) and confirmed by zero-shot with `FEATURE_THRESHOLD`; never zero-shot over
   the full feature list alone (bart is overconfident on short labels). Bump `PIPELINE_VERSION` when labels,
   hypotheses, cleaning, thresholds or truncation change, then run `--reanalyse --model-version outdated`.
+- Topics: BERTopic per brand on complaints (negative, or a complaint category), HDBSCAN `leaf` with a
+  min size that scales with the data, non-English texts skipped. Re-runs keep topic ids by member
+  overlap (`match_clusters`); never delete topics on re-run (alerts and history point at them).
+  Priority snapshot lives on `topics` (volume_7d, pain, trend, quadrant); max one spike alert per topic per ISO week.
+- Brand matching: `exclude` phrases are removed before matching; `exclude_if` words drop the mention.
 - This machine is an 8 GB M2: MPS memory is shared with the system. Keep zero-shot input short
   (`NLP_ZERO_SHOT_MAX_TOKENS`), batches small, and free MPS memory between batches.
   bart-large-mnli zero-shot is ~95% of the runtime (~1 s per mention).

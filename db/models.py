@@ -46,8 +46,9 @@ class Brand(Base):
     # {feature: [synonyms]} from brands.yaml
     features: Mapped[Optional[dict[str, list[str]]]] = mapped_column(JSON)
 
-    mentions: Mapped[list[Mention]] = relationship(back_populates="brand")
-    topics: Mapped[list[Topic]] = relationship(back_populates="brand")
+    # passive_deletes: the database's ON DELETE CASCADE removes children (the ORM must not blank FKs)
+    mentions: Mapped[list[Mention]] = relationship(back_populates="brand", passive_deletes=True)
+    topics: Mapped[list[Topic]] = relationship(back_populates="brand", passive_deletes=True)
 
     def __repr__(self) -> str:
         return f"<Brand {self.id} {self.name!r} own={self.is_own}>"
@@ -76,7 +77,7 @@ class Mention(Base):
     fetched_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
 
     brand: Mapped[Brand] = relationship(back_populates="mentions")
-    analysis: Mapped[Optional[Analysis]] = relationship(back_populates="mention")
+    analysis: Mapped[Optional[Analysis]] = relationship(back_populates="mention", passive_deletes=True)
 
     def __repr__(self) -> str:
         return f"<Mention {self.id} {self.source}:{self.external_id}>"
@@ -92,9 +93,16 @@ class Topic(Base):
     keywords: Mapped[Optional[list[str]]] = mapped_column(JSON)
     first_seen: Mapped[Optional[datetime]] = mapped_column(DateTime)
     last_seen: Mapped[Optional[datetime]] = mapped_column(DateTime)
+    # priority snapshot, written by nlp/priority.py
+    volume_7d: Mapped[int] = mapped_column(Integer, default=0)
+    volume_prev_7d: Mapped[int] = mapped_column(Integer, default=0)
+    pain: Mapped[Optional[float]] = mapped_column(Float)
+    trend: Mapped[Optional[float]] = mapped_column(Float)  # NULL when last week had 0 mentions
+    quadrant: Mapped[Optional[str]] = mapped_column(String(16))
+    scored_at: Mapped[Optional[datetime]] = mapped_column(DateTime)
 
     brand: Mapped[Brand] = relationship(back_populates="topics")
-    daily: Mapped[list[TopicDaily]] = relationship(back_populates="topic")
+    daily: Mapped[list[TopicDaily]] = relationship(back_populates="topic", passive_deletes=True)
 
     def __repr__(self) -> str:
         return f"<Topic {self.id} {self.label!r}>"

@@ -15,6 +15,8 @@ from nlp.pipeline import (
     PIPELINE_VERSION,
     best_feature,
     build_model_version,
+    pick_category,
+    restamp,
     run_pipeline,
     signed_sentiment,
 )
@@ -299,3 +301,40 @@ def test_reanalyse_exact_version(factory: sessionmaker[Session], featured: list[
     run_pipeline(factory, FakeAnalyzer())
     stats = run_pipeline(factory, FakeAnalyzer(), reanalyse=True, model_version="p0-unknown")
     assert stats.deleted == 0 and stats.analysed == 0
+
+
+def test_pick_category_blocks_praise_when_negative() -> None:
+    scores = {CATEGORY_HYPOTHESES["praise"]: 0.6, CATEGORY_HYPOTHESES["bug"]: 0.3, CATEGORY_HYPOTHESES["pricing"]: 0.1}
+    assert pick_category(scores, "positive") == "praise"
+    assert pick_category(scores, "neutral") == "praise"
+    assert pick_category(scores, "negative") == "bug"  # next best
+    assert pick_category({}, "negative") is None
+
+
+def test_praise_rule_in_pipeline(factory: sessionmaker[Session], featured: list[BrandSpec]) -> None:
+    mid = add_mentions(factory, featured[0], ["I hate what they did, it used to be great"])[0]
+    run_pipeline(factory, FakeAnalyzer())  # fake says praise for non-crash texts
+    row = analyses(factory)[mid]
+    assert row.sentiment == "negative" and row.category == "bug"
+
+
+def test_targeted_reanalyse_and_restamp(factory: sessionmaker[Session], featured: list[BrandSpec]) -> None:
+    ids = add_mentions(factory, featured[0], ["I hate this", "it crashes often", "plain words here"])
+    run_pipeline(factory, FakeAnalyzer())
+    old = build_model_version(HASHES)
+    with factory() as s:  # simulate a pre-v4 row: praise + negative
+        s.get(Analysis, ids[0]).category = "praise"  # type: ignore[union-attr]
+        s.commit()
+
+    new_hashes = {**HASHES, "facebook/bart-large-mnli": "eeeeeeee5555"}
+    stats = run_pipeline(factory, FakeAnalyzer(hashes=new_hashes), reanalyse=True, category="praise", sentiment="negative")
+    assert (stats.deleted, stats.analysed) == (1, 1)
+    rows = analyses(factory)
+    new = build_model_version(new_hashes)
+    assert rows[ids[0]].category == "bug" and rows[ids[0]].model_version == new
+    assert {rows[i].model_version for i in ids[1:]} == {old}  # untouched
+
+    with factory() as s:
+        assert restamp(s, old, new) == 2
+        s.commit()
+    assert {a.model_version for a in analyses(factory).values()} == {new}

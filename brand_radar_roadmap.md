@@ -5,7 +5,7 @@ competitors, runs local transformer models to find sentiment, emotions and featu
 complaints in a priority matrix on a glassmorphism Streamlit dashboard. Everything is stored in a MySQL
 (MariaDB) database running in XAMPP.
 
-**Current version:** Step 3 – NLP pipeline. Build it step by step with Claude Code (see the bottom of this file).
+**Current version:** Step 4 – topics and priority. Build it step by step with Claude Code (see the bottom of this file).
 
 ---
 
@@ -66,9 +66,10 @@ and each row is analysed only once (`analysis` has a foreign key to `mentions`).
 **Priority score** for each complaint topic (shown in the 2×2 matrix):
 
 - **Volume** (x-axis): number of mentions in the last 7 days, log-scaled
-- **Pain** (y-axis): average negativity × share of anger/disgust emotions
+- **Pain** (y-axis): average negativity × average P(anger)+P(disgust) (a probability share, so small topics don't score 0)
 - **Trend**: this week's volume ÷ last week's volume; above 2× (with at least 5 mentions) raises an alert badge
-- Quadrants: *Fix now* (high volume, high pain), *Quick wins*, *Monitor*, *Ignore*
+- Quadrants: *Fix now* (high volume, high pain), *Quick wins* (low volume, high pain), *Monitor* (high volume, low pain), *Ignore*;
+  thresholds `PRIORITY_VOLUME_THRESHOLD` / `PRIORITY_PAIN_THRESHOLD`; snapshot stored on `topics`
 
 ---
 
@@ -174,8 +175,8 @@ Main packages: `streamlit`, `plotly`, `wordcloud`, `sqlalchemy`, `pymysql`, `pyt
 | 1 | Project skeleton, `.env`, XAMPP MySQL schema, SQLAlchemy models, `check_setup.py` | Done |
 | 2 | Sources: Hacker News, App Store, Google Play, CSV import, dedupe, `fetch_runs` logging | Done |
 | 3 | NLP pipeline: sentiment, emotion, zero-shot category and feature, batch processing | Done |
-| 4 | Topic clustering, daily aggregates, priority score, trend alerts | Next |
-| 5 | Streamlit dashboard: glass CSS, KPI cards, emotion wheel, trend line, word clouds | |
+| 4 | Topic clustering, daily aggregates, priority score, trend alerts | Done |
+| 5 | Streamlit dashboard: glass CSS, KPI cards, emotion wheel, trend line, word clouds | Next |
 | 6 | Priority matrix, feature radar vs competitors, alert badges, executive summary feed | |
 | 7 | Collector scheduler + live-refreshing fragments; demo seed data | |
 | 8 | Optional Reddit source (only if you have approved access) | |
