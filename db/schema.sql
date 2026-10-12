@@ -48,6 +48,7 @@ CREATE TABLE IF NOT EXISTS topics (
   id          INT UNSIGNED NOT NULL AUTO_INCREMENT,
   brand_id    INT UNSIGNED NOT NULL,
   label       VARCHAR(255) NOT NULL,
+  category    VARCHAR(32)  NULL,      -- dominant analysis.category of the topic's mentions
   keywords    JSON         NULL,
   first_seen  DATETIME     NULL,
   last_seen   DATETIME     NULL,

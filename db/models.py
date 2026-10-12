@@ -90,6 +90,7 @@ class Topic(Base):
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     brand_id: Mapped[int] = mapped_column(ForeignKey("brands.id", ondelete="CASCADE"))
     label: Mapped[str] = mapped_column(String(255))
+    category: Mapped[Optional[str]] = mapped_column(String(32))  # dominant category of its mentions
     keywords: Mapped[Optional[list[str]]] = mapped_column(JSON)
     first_seen: Mapped[Optional[datetime]] = mapped_column(DateTime)
     last_seen: Mapped[Optional[datetime]] = mapped_column(DateTime)

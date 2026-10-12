@@ -5,6 +5,7 @@ from __future__ import annotations
 from datetime import datetime, timedelta
 
 import zlib
+from pathlib import Path
 
 import numpy as np
 import pytest
@@ -13,8 +14,9 @@ from sqlalchemy.orm import Session, sessionmaker
 
 from db.models import Analysis, Brand, Mention, Topic, TopicDaily
 from nlp.topics import (
-    Cluster, Complaint, effective_min_size, frequent_keywords, is_complaint, looks_english, make_label,
-    match_clusters, run_topics, stop_words_for,
+    Cluster, Complaint, assign_labels, dominant_category, effective_min_size, frequent_keywords, is_complaint,
+    keyphrase_candidates, load_label_overrides, looks_english, match_clusters, run_topics, stop_words_for,
+    title_case,
 )
 from sources.base import BrandSpec
 
@@ -43,10 +45,11 @@ class FakeEmbedder:
     def encode(self, texts: list[str]) -> np.ndarray:
         self.calls += 1
         rows = []
-        for i, t in enumerate(texts):
-            group = next(g for g in GROUPS if g in t or (g == "price" and "subscription" in t))
-            noise = np.random.default_rng(zlib.crc32(t.encode())).normal(size=32) * 0.1  # stable across runs
-            rows.append(self.centres[group] + noise)
+        for t in texts:
+            group = next((g for g in GROUPS if g in t or (g == "price" and "subscription" in t)), None)
+            rng = np.random.default_rng(zlib.crc32(t.encode()))  # stable across runs
+            # keyphrases without a group word (KeyBERTInspired embeds those too) get random vectors
+            rows.append(self.centres[group] + rng.normal(size=32) * 0.1 if group else rng.normal(size=32) * 5)
         v = np.array(rows)
         return v / np.linalg.norm(v, axis=1, keepdims=True)
 
@@ -104,19 +107,52 @@ def test_frequent_keywords_drop_one_off_words() -> None:
 
 
 @pytest.mark.parametrize(
-    ("keywords", "categories", "expected"),
+    ("phrase", "expected"),
     [
-        (["price", "price increase", "subscription"], ["pricing", "pricing", "bug"], "Pricing – price increase, subscription"),
-        (["sync", "android", "slow"], ["bug"], "Bug – sync, android"),
-        (["sync", "android", "duplicated pages", "duplicated"], ["bug"], "Bug – sync, android"),  # rank wins
-        (["sync", "sync stopped", "android"], ["bug"], "Bug – sync stopped, android"),
-        (["ads"], ["pricing"], "Pricing – ads"),
-        ([], ["support"], "Support"),
-        (["video ads", "ads", "video"], [None], "Topic – video ads"),  # words already shown are skipped
+        ("unskippable ads", "Unskippable Ads"),
+        ("slow daily note loading", "Slow Daily Note Loading"),
+        ("ai features", "AI Features"),
+        ("mcp server api", "MCP Server API"),
     ],
 )
-def test_make_label(keywords: list[str], categories: list[str | None], expected: str) -> None:
-    assert make_label(keywords, categories) == expected
+def test_title_case(phrase: str, expected: str) -> None:
+    assert title_case(phrase) == expected
+
+
+def test_keyphrase_candidates_upgrade_words_to_phrases() -> None:
+    assert keyphrase_candidates(["ads", "unskippable ads", "price"]) == ["unskippable ads", "price", "ads"]  # "ads" kept as a last resort
+    # once "slow sync android" is chosen, the bare words remain only as last-resort alternatives
+    assert keyphrase_candidates(["sync", "android", "slow sync android"]) == ["slow sync android", "sync", "android"]
+
+
+def test_dominant_category() -> None:
+    assert dominant_category(["pricing", "bug", "pricing", None]) == "pricing"
+    assert dominant_category([None]) is None
+
+
+def test_assign_labels_unique_within_brand() -> None:
+    def c(n: int, keywords: list[str]) -> Cluster:
+        return Cluster(members=[Complaint(i, "t", datetime(2026, 10, 1), "bug", None) for i in range(n)], keywords=keywords)
+
+    big, small, tiny = c(9, ["ads", "video ads"]), c(5, ["video ads", "loud ads"]), c(2, ["video ads"])
+    assign_labels([small, tiny, big])
+    assert big.label == "Video Ads"  # biggest topic picks first
+    assert small.label == "Loud Ads"  # its best phrase was taken, so it uses the next one
+    assert tiny.label == "Video Ads (2)"  # every phrase taken: numbered, still unique
+
+
+def test_label_overrides_file(tmp_path: Path) -> None:
+    path = tmp_path / "topic_labels.yaml"
+    assert load_label_overrides(path) == {}
+    path.write_text("overrides:\n  12: Unskippable Ads\n  '7': Sync Conflicts\n")
+    assert load_label_overrides(path) == {12: "Unskippable Ads", 7: "Sync Conflicts"}
+    path.write_text("overrides:\n  abc: X\n")
+    with pytest.raises(ValueError, match="bad override"):
+        load_label_overrides(path)
+
+
+def test_project_label_file_is_valid() -> None:
+    load_label_overrides()
 
 
 def test_match_clusters_by_member_overlap() -> None:
@@ -157,7 +193,16 @@ def test_clusters_and_stable_reruns(factory: sessionmaker[Session], notion: Bran
     before = topic_of(factory)
     with factory() as s:
         labels = sorted(s.scalars(select(Topic.label)))
-    assert any("price" in l for l in labels) and any("ads" in l for l in labels) and any("sync" in l for l in labels)
+    with factory() as s:
+        keyword_sets = [" ".join(k) for k in s.scalars(select(Topic.keywords))]
+    for group_word in ("sync", "ads"):
+        assert any(group_word in k for k in keyword_sets)
+    assert any("price" in k or "subscription" in k for k in keyword_sets)
+    assert all(l and l == l.title() for l in labels)  # Title Case, no "Category –" prefix
+    assert len({l.lower() for l in labels}) == len(labels)  # unique within the brand
+    with factory() as s:
+        assert set(s.scalars(select(Topic.category))) == {"bug"}  # category is its own field
+    assert first.labels and all(cat == "bug" for _, _, cat in first.labels)
 
     [second] = run_topics(factory, embedder, brands=["Notion"], min_complaints=10, min_size=10, outlier_similarity=0.5)
     assert (second.reused, second.created) == (3, 0)
@@ -201,3 +246,16 @@ def test_praise_is_not_clustered(factory: sessionmaker[Session], notion: BrandSp
     run_topics(factory, FakeEmbedder(), brands=["Notion"], min_complaints=10, min_size=10, outlier_similarity=0.5)
     topics = topic_of(factory)
     assert all(topics[p] is None for p in praise)
+
+
+def test_overrides_are_respected(factory: sessionmaker[Session], notion: BrandSpec) -> None:
+    add_complaints(factory, notion, all_texts())
+    embedder = FakeEmbedder()
+    run_topics(factory, embedder, brands=["Notion"], min_complaints=10, min_size=10, outlier_similarity=0.5, overrides={})
+    with factory() as s:
+        some_id = min(s.scalars(select(Topic.id)))
+    run_topics(factory, embedder, brands=["Notion"], min_complaints=10, min_size=10, outlier_similarity=0.5,
+               overrides={some_id: "My Manual Label"})
+    with factory() as s:
+        assert s.get(Topic, some_id).label == "My Manual Label"
+        assert s.scalar(select(func.count()).select_from(Topic)) == 3  # still no duplicates

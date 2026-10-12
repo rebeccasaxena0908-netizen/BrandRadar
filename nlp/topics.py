@@ -19,13 +19,15 @@ from collections import Counter, defaultdict
 from collections.abc import Sequence
 from dataclasses import dataclass, field
 from datetime import datetime
+from pathlib import Path
 from typing import Any, Protocol
 
 import numpy as np
+import yaml
 from sqlalchemy import delete, func, or_, select, update
 from sqlalchemy.orm import Session, sessionmaker
 
-from config import settings
+from config import PROJECT_ROOT, settings
 from db.models import Analysis, Brand, Mention, Topic, TopicDaily
 from nlp.text import clean_text
 from sources.base import split_keywords
@@ -34,11 +36,11 @@ log = logging.getLogger("nlp.topics")
 
 EMBEDDING_MODEL = "sentence-transformers/all-MiniLM-L6-v2"
 COMPLAINT_CATEGORIES = ("bug", "performance", "pricing", "UX/design", "support", "feature request")
-CATEGORY_TITLES = {
-    "bug": "Bug", "performance": "Performance", "pricing": "Pricing", "UX/design": "UX/design",
-    "support": "Support", "feature request": "Feature request", "praise": "Mixed",
-    "general discussion": "Discussion",
-}
+# Kept upper-case when labels are title-cased.
+ACRONYMS = {"ai": "AI", "api": "API", "ui": "UI", "ux": "UX", "ios": "iOS", "pdf": "PDF", "mcp": "MCP",
+            "llm": "LLM", "llms": "LLMs", "gpt": "GPT", "url": "URL", "sso": "SSO", "ocr": "OCR"}
+LABELS_FILE = PROJECT_ROOT / "topic_labels.yaml"
+MMR_DIVERSITY = 0.3
 # Words that carry no topic meaning in app reviews / HN comments (on top of sklearn's English list).
 EXTRA_STOP_WORDS = {
     "app", "apps", "application", "use", "using", "used", "just", "like", "really", "get", "got",
@@ -99,6 +101,7 @@ class Cluster:
     members: list[Complaint]
     keywords: list[str]
     label: str = ""
+    category: str | None = None
     topic_id: int | None = None
 
 
@@ -113,7 +116,7 @@ class BrandResult:
     created: int = 0
     assigned: int = 0
     outliers: int = 0
-    labels: list[str] = field(default_factory=list)
+    labels: list[tuple[int | None, str, str | None]] = field(default_factory=list)  # (topic id, label, category)
 
 
 # ---------------------------------------------------------------- pure helpers
@@ -142,30 +145,60 @@ def frequent_keywords(keywords: Sequence[str], texts: Sequence[str], min_docs: i
     return [k for k in keywords if sum(bool(re.search(rf"\b{re.escape(k)}\b", t)) for t in lowered) >= min_docs]
 
 
-def make_label(keywords: Sequence[str], categories: Sequence[str | None]) -> str:
-    """'Pricing – price increase, ads': dominant category + top 2 keyphrases.
+def title_case(phrase: str) -> str:
+    """'unskippable ads' -> 'Unskippable Ads'; acronyms stay upper-case ('ai features' -> 'AI Features')."""
+    return " ".join(ACRONYMS.get(w.lower(), w[:1].upper() + w[1:]) for w in phrase.split())
 
-    Keywords are taken in rank order; a word is upgraded to a two-word phrase from the top 6 that
-    contains it ('price' -> 'price increase'), and phrases whose words are already shown are skipped."""
-    common = Counter(c for c in categories if c).most_common(1)
-    title = CATEGORY_TITLES.get(common[0][0], common[0][0].capitalize()) if common else "Topic"
-    top = list(keywords[:6])
-    chosen: list[str] = []
-    seen_words: set[str] = set()
-    for keyword in top:
+
+def keyphrase_candidates(keywords: Sequence[str], top: int = 6) -> list[str]:
+    """Keywords in rank order; a single word is upgraded to a longer phrase from the top N that
+    contains it ('ads' -> 'unskippable ads'). Duplicates are dropped."""
+    head = list(keywords[:top])
+    out: list[str] = []
+    for keyword in head:
         phrase = keyword
         if " " not in keyword:
-            phrase = next(
-                (p for p in top if " " in p and keyword in p.split() and not set(p.split()) <= seen_words),
-                keyword,
-            )
-        if set(phrase.split()) <= seen_words:
-            continue
-        chosen.append(phrase)
-        seen_words |= set(phrase.split())
-        if len(chosen) == 2:
-            break
-    return f"{title} – {', '.join(chosen)}" if chosen else title
+            phrase = next((p for p in head if " " in p and keyword in p.split()), keyword)
+        if phrase not in out:
+            out.append(phrase)
+    return out + [k for k in keywords if k not in out]
+
+
+def dominant_category(categories: Sequence[str | None]) -> str | None:
+    common = Counter(c for c in categories if c).most_common(1)
+    return common[0][0] if common else None
+
+
+def assign_labels(clusters: Sequence[Cluster]) -> None:
+    """Label = top keyphrase in Title Case, unique within the brand: bigger topics choose first,
+    a later topic whose best phrase is taken uses its next one."""
+    used: set[str] = set()
+    for cluster in sorted(clusters, key=lambda c: -len(c.members)):
+        candidates = [title_case(p) for p in keyphrase_candidates(cluster.keywords)]
+        label = next((c for c in candidates if c.lower() not in used), None)
+        if label is None:  # every phrase taken (tiny vocabularies): number the best one
+            base, n = (candidates[0] if candidates else "Unlabelled Topic"), 2
+            while f"{base} ({n})".lower() in used:
+                n += 1
+            label = f"{base} ({n})"
+        cluster.label = label
+        used.add(label.lower())
+
+
+def load_label_overrides(path: Path = LABELS_FILE) -> dict[int, str]:
+    """topic_labels.yaml: {overrides: {topic_id: label}}. A missing file means no overrides."""
+    if not path.exists():
+        return {}
+    data = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
+    raw = data.get("overrides") or {}
+    if not isinstance(raw, dict):
+        raise ValueError(f"{path.name}: 'overrides' must map topic id -> label")
+    overrides = {}
+    for key, label in raw.items():
+        if not str(key).isdigit() or not str(label or "").strip():
+            raise ValueError(f"{path.name}: bad override {key!r}: {label!r} (need a topic id and a label)")
+        overrides[int(key)] = str(label).strip()
+    return overrides
 
 
 def match_clusters(clusters: Sequence[Cluster]) -> None:
@@ -199,16 +232,32 @@ def stop_words_for(all_brands: Sequence[Brand]) -> list[str]:
 # ---------------------------------------------------------------- clustering
 
 
+def _backend(embedder: Embedder) -> Any:
+    """Wrap our Embedder for BERTopic, which needs it to embed candidate keyphrases."""
+    from bertopic.backend import BaseEmbedder
+
+    class _Backend(BaseEmbedder):
+        def embed(self, documents: list[str], verbose: bool = False) -> np.ndarray:
+            return embedder.encode(list(documents))
+
+    return _Backend()
+
+
 def cluster_texts(
     texts: list[str],
     embeddings: np.ndarray,
+    embedder: Embedder,
     stop_words: list[str],
     min_size: int,
     outlier_similarity: float,
     selection: str = "leaf",
 ) -> tuple[list[int], dict[int, list[str]]]:
-    """BERTopic tuned for ~30-350 short texts. Returns a topic per text (-1 = outlier) and keywords."""
+    """BERTopic tuned for ~30-350 short texts. Returns a topic per text (-1 = outlier) and keyphrases.
+
+    Keyphrases: c-TF-IDF candidates re-ranked by KeyBERTInspired (similarity to the topic's
+    representative mentions), then MaximalMarginalRelevance so the top phrases aren't near-duplicates."""
     from bertopic import BERTopic
+    from bertopic.representation import KeyBERTInspired, MaximalMarginalRelevance
     from bertopic.vectorizers import ClassTfidfTransformer
     from hdbscan import HDBSCAN
     from sklearn.feature_extraction.text import CountVectorizer
@@ -225,10 +274,12 @@ def cluster_texts(
         cluster_selection_method=selection, prediction_data=True,
     )
     # min_df stays 1: BERTopic joins each topic's texts into one document before vectorising.
-    vectorizer = CountVectorizer(stop_words=stop_words, ngram_range=(1, 2), token_pattern=r"(?u)\b[a-zA-Z][a-zA-Z]+\b")
+    vectorizer = CountVectorizer(stop_words=stop_words, ngram_range=(1, 3), token_pattern=r"(?u)\b[a-zA-Z][a-zA-Z]+\b")
+    representation = [KeyBERTInspired(random_state=SEED), MaximalMarginalRelevance(diversity=MMR_DIVERSITY)]
     model = BERTopic(
+        embedding_model=_backend(embedder),
         umap_model=umap_model, hdbscan_model=hdbscan_model, vectorizer_model=vectorizer,
-        ctfidf_model=ClassTfidfTransformer(reduce_frequent_words=True),
+        ctfidf_model=ClassTfidfTransformer(reduce_frequent_words=True), representation_model=representation,
         min_topic_size=min_size, calculate_probabilities=False, verbose=False,
     )
     topics, _ = model.fit_transform(texts, embeddings)
@@ -237,12 +288,23 @@ def cluster_texts(
             texts, topics, strategy="embeddings", embeddings=embeddings, threshold=outlier_similarity
         )
         model.update_topics(texts, topics=topics, vectorizer_model=vectorizer,
-                            ctfidf_model=ClassTfidfTransformer(reduce_frequent_words=True))
-    keywords = {
-        t: [word for word, _ in (model.get_topic(t) or [])][:10]
-        for t in sorted(set(topics)) if t != -1
-    }
+                            ctfidf_model=ClassTfidfTransformer(reduce_frequent_words=True),
+                            representation_model=representation)
+    keywords = {}
+    for t in sorted(set(topics)):
+        if t == -1:
+            continue
+        # KeyBERTInspired pads with "" when no candidate is similar to the topic; fall back to c-TF-IDF.
+        phrases = [word for word, _ in (model.get_topic(t) or []) if word.strip()]
+        keywords[t] = (phrases or _ctfidf_words(model, t))[:10]
     return [int(t) for t in topics], keywords
+
+
+def _ctfidf_words(model: Any, topic: int, n: int = 10) -> list[str]:
+    """Plain c-TF-IDF top words for a topic (before the representation models re-rank them)."""
+    row = model.c_tf_idf_[topic + model._outliers].toarray().ravel()
+    vocab = model.vectorizer_model.get_feature_names_out()
+    return [str(vocab[i]) for i in row.argsort()[::-1][:n] if row[i] > 0]
 
 
 # ---------------------------------------------------------------- database
@@ -262,8 +324,12 @@ def load_complaints(session: Session, brand_id: int) -> list[Complaint]:
     return [c for c in complaints if c.text]
 
 
-def save_brand(session: Session, brand_id: int, clusters: list[Cluster]) -> None:
-    """Write topics + analysis.topic_id for one brand, then rebuild its topic_daily rows."""
+def save_brand(
+    session: Session, brand_id: int, clusters: list[Cluster], overrides: dict[int, str] | None = None
+) -> None:
+    """Write topics + analysis.topic_id for one brand, then rebuild its topic_daily rows.
+    Manual labels from topic_labels.yaml win over generated ones."""
+    overrides = overrides or {}
     brand_mentions = select(Mention.id).where(Mention.brand_id == brand_id)
     session.execute(
         update(Analysis).where(Analysis.mention_id.in_(brand_mentions)).values(topic_id=None)
@@ -271,14 +337,18 @@ def save_brand(session: Session, brand_id: int, clusters: list[Cluster]) -> None
     )
     for cluster in clusters:
         dates = [m.created_at for m in cluster.members]
-        values = {"label": cluster.label[:255], "keywords": cluster.keywords,
+        values = {"label": cluster.label[:255], "category": cluster.category, "keywords": cluster.keywords,
                   "first_seen": min(dates), "last_seen": max(dates)}
         if cluster.topic_id is None:
             topic = Topic(brand_id=brand_id, **values)
             session.add(topic)
             session.flush()
             cluster.topic_id = topic.id
+            if topic.id in overrides:
+                cluster.label = topic.label = overrides[topic.id][:255]
         else:
+            if cluster.topic_id in overrides:
+                cluster.label = values["label"] = overrides[cluster.topic_id][:255]
             session.execute(update(Topic).where(Topic.id == cluster.topic_id).values(**values))
         session.execute(
             update(Analysis).where(Analysis.mention_id.in_([m.mention_id for m in cluster.members]))
@@ -318,7 +388,9 @@ def run_topics(
     min_complaints: int | None = None,
     min_size: int | None = None,
     outlier_similarity: float | None = None,
+    overrides: dict[int, str] | None = None,
 ) -> list[BrandResult]:
+    overrides = load_label_overrides() if overrides is None else overrides
     min_complaints = min_complaints or settings.topic_min_complaints
     min_size = min_size or settings.topic_min_size
     outlier_similarity = settings.topic_outlier_similarity if outlier_similarity is None else outlier_similarity
@@ -351,7 +423,7 @@ def run_topics(
         texts = [c.text for c in complaints]
         embeddings = embedder.encode(texts)
         size = effective_min_size(len(texts), min_size)
-        assignment, keywords = cluster_texts(texts, embeddings, stop_words, size, outlier_similarity)
+        assignment, keywords = cluster_texts(texts, embeddings, embedder, stop_words, size, outlier_similarity)
 
         grouped: dict[int, list[Complaint]] = defaultdict(list)
         for complaint, topic in zip(complaints, assignment):
@@ -364,17 +436,18 @@ def run_topics(
             raw = keywords.get(t, [])
             readable = frequent_keywords(raw, [m.text for m in members]) or raw[:5]
             clusters.append(Cluster(members=members, keywords=readable,
-                                    label=make_label(readable, [m.category for m in members])))
+                                    category=dominant_category([m.category for m in members])))
+        assign_labels(clusters)
         match_clusters(clusters)
         result.reused = sum(c.topic_id is not None for c in clusters)
         result.created = len(clusters) - result.reused
         result.clusters = len(clusters)
         result.assigned = sum(len(c.members) for c in clusters)
-        result.labels = [c.label for c in clusters]
 
         with factory() as session:
-            save_brand(session, brand.id, clusters)
+            save_brand(session, brand.id, clusters, overrides)
             session.commit()
+        result.labels = sorted(((c.topic_id, c.label, c.category) for c in clusters), key=lambda x: x[0] or 0)
         log.info("%s: %d complaints -> %d topics (%d reused, %d new), %d outliers",
                  brand.name, result.complaints, result.clusters, result.reused, result.created, result.outliers)
     return results
@@ -399,8 +472,8 @@ def main(argv: Sequence[str] | None = None) -> int:
         print(f"{r.brand:<10} {r.complaints} complaints -> {r.clusters} topics "
               f"({r.reused} reused, {r.created} new), {r.assigned} assigned, {r.outliers} outliers, "
               f"{r.non_english} non-English skipped")
-        for label in r.labels:
-            print(f"             · {label}")
+        for topic_id, label, category in r.labels:
+            print(f"   #{topic_id:<4} {label:<40} [{category}]")
     return 0
 
 

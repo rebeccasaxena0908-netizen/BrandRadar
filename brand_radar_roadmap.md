@@ -58,7 +58,7 @@ class Source(Protocol):
 | Emotion | `j-hartmann/emotion-english-distilroberta-base` | anger, disgust, fear, joy, neutral, sadness, surprise (feeds the emotion wheel) |
 | Category | `facebook/bart-large-mnli` zero-shot | bug, feature request, pricing, performance, UX/design, support, praise, general discussion (catch-all for neutral talk) |
 | Feature / aspect | keyword gate on each brand's feature synonyms in `brands.yaml`, then zero-shot confirms and picks among the matches (zero-shot alone matched almost everything) | which feature each mention talks about, or none |
-| Topic clustering | `BERTopic` + `sentence-transformers/all-MiniLM-L6-v2` | groups of similar complaints with auto labels ("crashes after update") |
+| Topic clustering | `BERTopic` + `sentence-transformers/all-MiniLM-L6-v2`, KeyBERTInspired + MMR keyphrases | groups of similar complaints with Title Case labels ("Unskippable Ads"); manual overrides in `topic_labels.yaml` |
 
 Models download once (about 2 GB total) into the Hugging Face cache. Mentions are analysed in batches
 and each row is analysed only once (`analysis` has a foreign key to `mentions`).

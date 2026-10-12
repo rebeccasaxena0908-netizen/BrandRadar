@@ -67,6 +67,8 @@ python manage_brands.py --recheck-mentions [--apply]                # after chan
 - Topics: BERTopic per brand on complaints (negative, or a complaint category), HDBSCAN `leaf` with a
   min size that scales with the data, non-English texts skipped. Re-runs keep topic ids by member
   overlap (`match_clusters`); never delete topics on re-run (alerts and history point at them).
+  Labels: KeyBERTInspired + MMR keyphrases, Title Case, unique per brand; `topics.category` holds the
+  dominant category. Manual labels go in `topic_labels.yaml` (topic id -> label) and always win.
   Priority snapshot lives on `topics` (volume_7d, pain, trend, quadrant); max one spike alert per topic per ISO week.
 - Brand matching: `exclude` phrases are removed before matching; `exclude_if` words drop the mention.
 - This machine is an 8 GB M2: MPS memory is shared with the system. Keep zero-shot input short

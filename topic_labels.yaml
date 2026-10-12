@@ -1,0 +1,7 @@
+# Manual topic labels. `python -m nlp.topics` keeps these instead of the generated label.
+# Topic ids are stable across re-runs, so an override sticks to the same complaint theme.
+# Find ids with:  python -m nlp.topics   (each topic is printed as "#id label [category]")
+#
+# overrides:
+#   12: Unskippable Ads
+overrides: {}
