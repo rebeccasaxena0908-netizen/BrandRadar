@@ -43,6 +43,11 @@ class Settings:
     http_retries: int
     http_min_interval: float
     http_user_agent: str
+    nlp_batch_size: int
+    nlp_max_tokens: int
+    nlp_zero_shot_max_tokens: int
+    nlp_device: str
+    feature_threshold: float
     alert_trend_ratio: float
     alert_min_mentions: int
     reddit_client_id: str
@@ -79,6 +84,11 @@ def load_settings() -> Settings:
         http_retries=_get_int("HTTP_RETRIES", 3),
         http_min_interval=_get_float("HTTP_MIN_INTERVAL", 0.5),
         http_user_agent=os.getenv("HTTP_USER_AGENT", "BrandRadar/0.2 (brand sentiment research)"),
+        nlp_batch_size=_get_int("NLP_BATCH_SIZE", 8),
+        nlp_max_tokens=_get_int("NLP_MAX_TOKENS", 512),
+        nlp_zero_shot_max_tokens=_get_int("NLP_ZERO_SHOT_MAX_TOKENS", 256),
+        nlp_device=os.getenv("NLP_DEVICE", "auto").lower(),
+        feature_threshold=_get_float("FEATURE_THRESHOLD", 0.5),
         alert_trend_ratio=_get_float("ALERT_TREND_RATIO", 2.0),
         alert_min_mentions=_get_int("ALERT_MIN_MENTIONS", 5),
         reddit_client_id=os.getenv("REDDIT_CLIENT_ID", ""),

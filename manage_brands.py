@@ -32,7 +32,7 @@ class BrandEntry:
     exclude: list[str] = field(default_factory=list)
     app_store_id: str | None = None
     play_store_id: str | None = None
-    features: list[str] = field(default_factory=list)
+    features: dict[str, list[str]] = field(default_factory=dict)  # feature -> synonyms
 
     def stored_keywords(self) -> list[str]:
         return self.keywords + [f"-{e}" for e in self.exclude]
@@ -44,6 +44,17 @@ def _str_list(value: Any, what: str) -> list[str]:
     if not isinstance(value, list) or not all(isinstance(v, (str, int)) for v in value):
         raise ValueError(f"{what} must be a list of strings")
     return [str(v).strip() for v in value if str(v).strip()]
+
+
+def _features(value: Any, name: str) -> dict[str, list[str]]:
+    """A list of feature names, or a mapping of feature name -> list of synonyms."""
+    if value is None:
+        return {}
+    if isinstance(value, list):
+        return {f: [] for f in _str_list(value, f"{name}.features")}
+    if isinstance(value, dict):
+        return {str(k).strip(): _str_list(v, f"{name}.features.{k}") for k, v in value.items() if str(k).strip()}
+    raise ValueError(f"{name}.features must be a list or a mapping of feature: [synonyms]")
 
 
 def load_yaml(path: Path) -> list[BrandEntry]:
@@ -64,7 +75,7 @@ def load_yaml(path: Path) -> list[BrandEntry]:
             exclude=_str_list(raw.get("exclude"), f"{name}.exclude"),
             app_store_id=str(raw["app_store_id"]) if raw.get("app_store_id") else None,
             play_store_id=str(raw["play_store_id"]) if raw.get("play_store_id") else None,
-            features=_str_list(raw.get("features"), f"{name}.features"),
+            features=_features(raw.get("features"), name),
         )
         if not entry.keywords:
             raise ValueError(f"{name}: needs at least one keyword")
@@ -122,7 +133,7 @@ def list_brands(session: Session) -> None:
         print(f"{b.id:>3}  {b.name:<12} {own:<10}  app_store={b.app_store_id or '-':<11} "
               f"play={b.play_store_id or '-'}")
         print(f"     keywords={b.keywords}")
-        print(f"     features={b.features}")
+        print(f"     features={list(b.features or [])}")
 
 
 def main(argv: Sequence[str] | None = None) -> int:

@@ -9,6 +9,7 @@ ENV_VARS = (
     "FETCH_INTERVAL_MINUTES", "ALERT_TREND_RATIO", "ALERT_MIN_MENTIONS",
     "FETCH_SINCE_DAYS", "MAX_ITEMS_PER_SOURCE", "APPSTORE_COUNTRIES", "PLAYSTORE_LANG",
     "PLAYSTORE_COUNTRY", "HTTP_TIMEOUT", "HTTP_RETRIES", "HTTP_MIN_INTERVAL", "HTTP_USER_AGENT",
+    "NLP_BATCH_SIZE", "NLP_MAX_TOKENS", "NLP_ZERO_SHOT_MAX_TOKENS", "NLP_DEVICE", "FEATURE_THRESHOLD",
     "REDDIT_CLIENT_ID", "REDDIT_CLIENT_SECRET", "REDDIT_USER_AGENT",
 )
 
@@ -31,6 +32,9 @@ def test_defaults(clean_env: pytest.MonkeyPatch) -> None:
     assert s.reddit_enabled is False
     assert s.appstore_countries == ("us", "in", "gb", "ca", "au")
     assert s.max_items_per_source == 500
+    assert s.nlp_device == "auto"
+    assert s.feature_threshold == 0.5
+    assert (s.nlp_batch_size, s.nlp_max_tokens, s.nlp_zero_shot_max_tokens) == (8, 512, 256)
 
 
 def test_country_list_parsed(clean_env: pytest.MonkeyPatch) -> None:

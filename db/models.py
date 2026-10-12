@@ -43,7 +43,8 @@ class Brand(Base):
     keywords: Mapped[Optional[list[str]]] = mapped_column(JSON)
     app_store_id: Mapped[Optional[str]] = mapped_column(String(32))
     play_store_id: Mapped[Optional[str]] = mapped_column(String(255))
-    features: Mapped[Optional[list[str]]] = mapped_column(JSON)
+    # {feature: [synonyms]} from brands.yaml
+    features: Mapped[Optional[dict[str, list[str]]]] = mapped_column(JSON)
 
     mentions: Mapped[list[Mention]] = relationship(back_populates="brand")
     topics: Mapped[list[Topic]] = relationship(back_populates="brand")

@@ -168,10 +168,38 @@ def check_database() -> None:
         report(False, "Connect to database", f"{type(exc).__name__}: {exc}")
 
 
+def check_models() -> None:
+    section("Models (Hugging Face cache)")
+    try:
+        from huggingface_hub import scan_cache_dir
+
+        from config import settings
+        from nlp.models import ALL_MODELS, pick_device
+
+        cache = scan_cache_dir()
+    except Exception as exc:  # noqa: BLE001
+        report(False, "Scan Hugging Face cache", repr(exc))
+        return
+    repos = {r.repo_id: r for r in cache.repos if r.repo_type == "model"}
+    for name in ALL_MODELS:
+        repo = repos.get(name)
+        has_weights = repo is not None and any(
+            f.file_name.endswith((".safetensors", ".bin")) for rev in repo.revisions for f in rev.files
+        )
+        if has_weights:
+            commit = max(repo.revisions, key=lambda r: r.last_modified).commit_hash[:8]
+            report(True, name, f"{repo.size_on_disk / 1e6:,.0f} MB, commit {commit}")
+        else:
+            report(False, name, "not downloaded — run: python -m nlp.pipeline --download")
+    device = pick_device(settings.nlp_device)
+    report(device != "cpu", "GPU for inference", f"device = {device}", warn_only=True)
+
+
 def main() -> int:
     print("Brand Radar setup check")
     check_python()
     check_packages()
+    check_models()
     if check_env():
         check_database()
 

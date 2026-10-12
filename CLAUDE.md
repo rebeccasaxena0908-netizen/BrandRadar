@@ -38,6 +38,9 @@ python check_setup.py                                               # environmen
 python manage_brands.py                                             # sync brands.yaml -> brands table
 python fetch.py [--brand X] [--source hackernews] [--since-days 30] # fetch mentions
 python fetch.py --csv file.csv --brand Notion                       # CSV import
+python -m nlp.pipeline [--brand X] [--limit N]                      # analyse mentions without analysis
+python -m nlp.pipeline --reanalyse [--brand X] [--model-version V|outdated]
+python -m nlp.pipeline --download                                   # fetch the models into the HF cache
 ```
 
 ## Layout notes
@@ -51,4 +54,13 @@ python fetch.py --csv file.csv --brand Notion                       # CSV import
   `brands.keywords` holds search keywords plus exclude phrases prefixed with `-`.
 - Sources live in `sources/` and implement `fetch(brand, since) -> list[RawMention]`; `fetch.py` runs them,
   dedupes and writes one `fetch_runs` row per (source, brand).
-- `db/session.py` exposes `get_engine()` and `get_session()`.
+- `db/session.py` exposes `get_engine()`, `get_session_factory()` and `get_session()`.
+- NLP: `nlp/models.py` wraps the Hugging Face pipelines behind the `Analyzer` protocol (tests use a fake;
+  never download models in tests). `nlp/pipeline.py` writes one `analysis` row per mention;
+  `sentiment_score` is P(positive) − P(negative) in [-1, 1]. Features are keyword-gated (`nlp/features.py`,
+  synonyms in `brands.yaml`) and confirmed by zero-shot with `FEATURE_THRESHOLD`; never zero-shot over
+  the full feature list alone (bart is overconfident on short labels). Bump `PIPELINE_VERSION` when labels,
+  hypotheses, cleaning, thresholds or truncation change, then run `--reanalyse --model-version outdated`.
+- This machine is an 8 GB M2: MPS memory is shared with the system. Keep zero-shot input short
+  (`NLP_ZERO_SHOT_MAX_TOKENS`), batches small, and free MPS memory between batches.
+  bart-large-mnli zero-shot is ~95% of the runtime (~1 s per mention).

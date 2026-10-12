@@ -17,7 +17,9 @@ brands:
     keywords: [Notion]
     exclude: [Notion Ink]
     app_store_id: "1232780281"
-    features: [sync, AI]
+    features:
+      sync: [syncing]
+      AI: []
   - name: Obsidian
     keywords: [Obsidian]
 """
@@ -34,6 +36,13 @@ def test_project_brands_yaml_is_valid() -> None:
     assert [e.name for e in entries] == ["Notion", "Obsidian", "Evernote", "ClickUp"]
     assert [e.name for e in entries if e.is_own] == ["Notion"]
     assert all(e.app_store_id and e.play_store_id and e.features for e in entries)
+    assert all("mobile app" not in e.features for e in entries)
+    assert all(e.features["pricing"] for e in entries)  # shared core merged in via the YAML anchor
+
+
+def test_plain_feature_list_still_accepted(tmp_path: Path) -> None:
+    text = "brands:\n  - name: A\n    is_own: true\n    keywords: [a]\n    features: [sync, AI]\n"
+    assert load_yaml(write(tmp_path, text))[0].features == {"sync": [], "AI": []}
 
 
 def test_sync_adds_then_updates(tmp_path: Path) -> None:
@@ -53,9 +62,10 @@ def test_sync_adds_then_updates(tmp_path: Path) -> None:
     with factory() as s:
         notion = s.scalars(select(Brand).where(Brand.name == "Notion")).one()
         assert notion.keywords == ["Notion", "-Notion Ink"]
+        assert notion.features == {"sync": ["syncing"], "AI": []}
         assert notion.is_own is True
 
-    changed = YAML.replace("[sync, AI]", "[sync, AI, offline]").replace("  - name: Obsidian\n    keywords: [Obsidian]\n", "")
+    changed = YAML.replace("      AI: []\n", "      AI: []\n      offline: [no internet]\n").replace("  - name: Obsidian\n    keywords: [Obsidian]\n", "")
     with factory() as s:
         report = sync_brands(s, load_yaml(write(tmp_path, changed)))
         s.commit()

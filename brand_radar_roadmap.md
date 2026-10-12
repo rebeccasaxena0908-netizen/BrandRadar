@@ -5,7 +5,7 @@ competitors, runs local transformer models to find sentiment, emotions and featu
 complaints in a priority matrix on a glassmorphism Streamlit dashboard. Everything is stored in a MySQL
 (MariaDB) database running in XAMPP.
 
-**Current version:** Step 2 – data sources. Build it step by step with Claude Code (see the bottom of this file).
+**Current version:** Step 3 – NLP pipeline. Build it step by step with Claude Code (see the bottom of this file).
 
 ---
 
@@ -56,8 +56,8 @@ class Source(Protocol):
 |---|---|---|
 | Sentiment | `cardiffnlp/twitter-roberta-base-sentiment-latest` | negative / neutral / positive + score |
 | Emotion | `j-hartmann/emotion-english-distilroberta-base` | anger, disgust, fear, joy, neutral, sadness, surprise (feeds the emotion wheel) |
-| Category | `facebook/bart-large-mnli` zero-shot | bug, feature request, pricing, performance, UX/design, support, praise |
-| Feature / aspect | zero-shot over a feature list you set per brand (e.g. "sync", "dark mode", "login") | which feature each mention talks about |
+| Category | `facebook/bart-large-mnli` zero-shot | bug, feature request, pricing, performance, UX/design, support, praise, general discussion (catch-all for neutral talk) |
+| Feature / aspect | keyword gate on each brand's feature synonyms in `brands.yaml`, then zero-shot confirms and picks among the matches (zero-shot alone matched almost everything) | which feature each mention talks about, or none |
 | Topic clustering | `BERTopic` + `sentence-transformers/all-MiniLM-L6-v2` | groups of similar complaints with auto labels ("crashes after update") |
 
 Models download once (about 2 GB total) into the Hugging Face cache. Mentions are analysed in batches
@@ -173,8 +173,8 @@ Main packages: `streamlit`, `plotly`, `wordcloud`, `sqlalchemy`, `pymysql`, `pyt
 |---|---|---|
 | 1 | Project skeleton, `.env`, XAMPP MySQL schema, SQLAlchemy models, `check_setup.py` | Done |
 | 2 | Sources: Hacker News, App Store, Google Play, CSV import, dedupe, `fetch_runs` logging | Done |
-| 3 | NLP pipeline: sentiment, emotion, zero-shot category and feature, batch processing | Next |
-| 4 | Topic clustering, daily aggregates, priority score, trend alerts | |
+| 3 | NLP pipeline: sentiment, emotion, zero-shot category and feature, batch processing | Done |
+| 4 | Topic clustering, daily aggregates, priority score, trend alerts | Next |
 | 5 | Streamlit dashboard: glass CSS, KPI cards, emotion wheel, trend line, word clouds | |
 | 6 | Priority matrix, feature radar vs competitors, alert badges, executive summary feed | |
 | 7 | Collector scheduler + live-refreshing fragments; demo seed data | |
