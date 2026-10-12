@@ -1,0 +1,21 @@
+# Secrets
+.env
+
+# Python
+venv/
+.venv/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+
+# macOS
+.DS_Store
+
+# Model caches (Hugging Face, sentence-transformers, BERTopic)
+models/
+.cache/
+hf_cache/
+
+# Editors
+.vscode/
+.idea/

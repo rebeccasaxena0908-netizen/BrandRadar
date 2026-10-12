@@ -1,0 +1,68 @@
+"""Application settings, loaded from environment variables / .env."""
+
+from __future__ import annotations
+
+import os
+from dataclasses import dataclass
+from pathlib import Path
+from urllib.parse import quote_plus
+
+from dotenv import load_dotenv
+
+PROJECT_ROOT = Path(__file__).resolve().parent
+
+load_dotenv(PROJECT_ROOT / ".env")
+
+
+def _get_int(name: str, default: int) -> int:
+    return int(os.getenv(name, str(default)))
+
+
+def _get_float(name: str, default: float) -> float:
+    return float(os.getenv(name, str(default)))
+
+
+@dataclass(frozen=True)
+class Settings:
+    db_host: str
+    db_port: int
+    db_name: str
+    db_user: str
+    db_password: str
+    fetch_interval_minutes: int
+    alert_trend_ratio: float
+    alert_min_mentions: int
+    reddit_client_id: str
+    reddit_client_secret: str
+    reddit_user_agent: str
+
+    @property
+    def database_url(self) -> str:
+        """SQLAlchemy URL; user and password are URL-encoded."""
+        return (
+            f"mysql+pymysql://{quote_plus(self.db_user)}:{quote_plus(self.db_password)}"
+            f"@{self.db_host}:{self.db_port}/{self.db_name}?charset=utf8mb4"
+        )
+
+    @property
+    def reddit_enabled(self) -> bool:
+        return bool(self.reddit_client_id and self.reddit_client_secret)
+
+
+def load_settings() -> Settings:
+    return Settings(
+        db_host=os.getenv("DB_HOST", "127.0.0.1"),
+        db_port=_get_int("DB_PORT", 3306),
+        db_name=os.getenv("DB_NAME", "brand_radar"),
+        db_user=os.getenv("DB_USER", "radar"),
+        db_password=os.getenv("DB_PASSWORD", ""),
+        fetch_interval_minutes=_get_int("FETCH_INTERVAL_MINUTES", 60),
+        alert_trend_ratio=_get_float("ALERT_TREND_RATIO", 2.0),
+        alert_min_mentions=_get_int("ALERT_MIN_MENTIONS", 5),
+        reddit_client_id=os.getenv("REDDIT_CLIENT_ID", ""),
+        reddit_client_secret=os.getenv("REDDIT_CLIENT_SECRET", ""),
+        reddit_user_agent=os.getenv("REDDIT_USER_AGENT", "brand-radar/0.1"),
+    )
+
+
+settings = load_settings()

@@ -5,7 +5,7 @@ competitors, runs local transformer models to find sentiment, emotions and featu
 complaints in a priority matrix on a glassmorphism Streamlit dashboard. Everything is stored in a MySQL
 (MariaDB) database running in XAMPP.
 
-**Current version:** Step 0 – planning. Build it step by step with Claude Code (see the bottom of this file).
+**Current version:** Step 1 – skeleton and database. Build it step by step with Claude Code (see the bottom of this file).
 
 ---
 
@@ -171,8 +171,8 @@ Main packages: `streamlit`, `plotly`, `wordcloud`, `sqlalchemy`, `pymysql`, `pyt
 
 | Step | Feature | Status |
 |---|---|---|
-| 1 | Project skeleton, `.env`, XAMPP MySQL schema, SQLAlchemy models, `check_setup.py` | Next |
-| 2 | Sources: Hacker News, App Store, Google Play, CSV import, dedupe, `fetch_runs` logging | |
+| 1 | Project skeleton, `.env`, XAMPP MySQL schema, SQLAlchemy models, `check_setup.py` | Done |
+| 2 | Sources: Hacker News, App Store, Google Play, CSV import, dedupe, `fetch_runs` logging | Next |
 | 3 | NLP pipeline: sentiment, emotion, zero-shot category and feature, batch processing | |
 | 4 | Topic clustering, daily aggregates, priority score, trend alerts | |
 | 5 | Streamlit dashboard: glass CSS, KPI cards, emotion wheel, trend line, word clouds | |
