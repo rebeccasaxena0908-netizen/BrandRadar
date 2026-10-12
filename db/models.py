@@ -29,6 +29,10 @@ class Base(DeclarativeBase):
     pass
 
 
+# BIGINT ids in MySQL; INTEGER on SQLite (tests) so autoincrement works there.
+BigId = BigInteger().with_variant(Integer, "sqlite")
+
+
 class Brand(Base):
     __tablename__ = "brands"
     __table_args__ = (UniqueConstraint("name", name="uq_brands_name"),)
@@ -51,11 +55,13 @@ class Brand(Base):
 class Mention(Base):
     __tablename__ = "mentions"
     __table_args__ = (
-        UniqueConstraint("source", "external_id", name="uq_mentions_source_external"),
+        UniqueConstraint(
+            "brand_id", "source", "external_id", name="uq_mentions_brand_source_external"
+        ),
         Index("ix_mentions_brand_created", "brand_id", "created_at"),
     )
 
-    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    id: Mapped[int] = mapped_column(BigId, primary_key=True, autoincrement=True)
     brand_id: Mapped[int] = mapped_column(ForeignKey("brands.id", ondelete="CASCADE"))
     source: Mapped[str] = mapped_column(String(32))
     external_id: Mapped[str] = mapped_column(String(255))
@@ -150,7 +156,7 @@ class FetchRun(Base):
     __tablename__ = "fetch_runs"
     __table_args__ = (Index("ix_fetch_runs_source_started", "source", "started_at"),)
 
-    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    id: Mapped[int] = mapped_column(BigId, primary_key=True, autoincrement=True)
     source: Mapped[str] = mapped_column(String(32))
     brand_id: Mapped[Optional[int]] = mapped_column(
         ForeignKey("brands.id", ondelete="SET NULL")

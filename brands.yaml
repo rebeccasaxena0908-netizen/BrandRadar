@@ -1,0 +1,48 @@
+# Brands tracked by Brand Radar. Sync into MySQL with:  python manage_brands.py
+#
+# keywords  Search terms for keyword sources (Hacker News, Reddit). A keyword containing a capital
+#           letter is matched case-sensitively as a whole word ("Notion" the product, not "the notion
+#           that..."); an all-lowercase keyword matches any case.
+# exclude   Phrases removed from the text before matching, using the same case rule, e.g.
+#           "Obsidian Entertainment" so the game studio doesn't count as Obsidian.
+#           Stored in brands.keywords with a leading "-".
+# app_store_id / play_store_id   Verified live on 2026-10-12 (iTunes lookup API / google-play-scraper).
+# features  Feature list for zero-shot feature detection and the feature radar (Step 3+).
+#           Keep a shared core so brands can be compared feature by feature.
+
+brands:
+  - name: Notion
+    is_own: true
+    keywords: [Notion, notion.so]
+    exclude: [Notion Ink, Notion Capital, Notion of]   # "Notion of …" at a sentence start is the word, not the app
+    app_store_id: "1232780281"      # Notion: Notes, Tasks, AI — Notion Labs, Incorporated
+    play_store_id: notion.id        # Notion: AI Workspace — Notion Labs, Inc.
+    features: [sync, offline, pricing, performance, AI, mobile app, search, templates,
+               collaboration, integrations, editor, databases]
+
+  - name: Obsidian
+    is_own: false
+    keywords: [Obsidian, obsidian.md]
+    exclude: [Obsidian Entertainment, Obsidian Systems, Obsidian Security]
+    app_store_id: "1557175442"      # Obsidian - Connected Notes — Dynalist Inc.
+    play_store_id: md.obsidian      # Obsidian — Dynalist Inc.
+    features: [sync, offline, pricing, performance, AI, mobile app, search, templates,
+               collaboration, integrations, editor, plugins]
+
+  - name: Evernote
+    is_own: false
+    keywords: [evernote]
+    exclude: []
+    app_store_id: "281796108"       # Evernote: AI Notes & Notebook — Evernote Corporation
+    play_store_id: com.evernote     # Evernote - Note Organizer — Evernote by Bending Spoons
+    features: [sync, offline, pricing, performance, AI, mobile app, search, templates,
+               collaboration, integrations, editor, web clipper]
+
+  - name: ClickUp
+    is_own: false
+    keywords: [clickup]
+    exclude: []
+    app_store_id: "1535098836"                  # ClickUp: Tasks, Chat, Docs, AI — Mango Technologies, Inc.
+    play_store_id: co.mangotechnologies.clickup # ClickUp: Tasks, Chat, Docs, AI — ClickUp
+    features: [sync, offline, pricing, performance, AI, mobile app, search, templates,
+               collaboration, integrations, task management, notifications]

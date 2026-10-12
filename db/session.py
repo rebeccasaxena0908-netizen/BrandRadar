@@ -23,14 +23,14 @@ def get_engine() -> Engine:
 
 
 @lru_cache(maxsize=1)
-def _session_factory() -> sessionmaker[Session]:
+def get_session_factory() -> sessionmaker[Session]:
     return sessionmaker(bind=get_engine(), expire_on_commit=False)
 
 
 @contextmanager
 def get_session() -> Iterator[Session]:
     """Yield a session that commits on success and rolls back on error."""
-    session = _session_factory()()
+    session = get_session_factory()()
     try:
         yield session
         session.commit()

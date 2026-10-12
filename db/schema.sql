@@ -23,7 +23,8 @@ CREATE TABLE IF NOT EXISTS brands (
   UNIQUE KEY uq_brands_name (name)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
--- Raw text pulled from every source
+-- Raw text pulled from every source.
+-- external_id is the source's own ID; unique per brand so one comment can count for several brands.
 CREATE TABLE IF NOT EXISTS mentions (
   id           BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
   brand_id     INT UNSIGNED    NOT NULL,
@@ -36,7 +37,7 @@ CREATE TABLE IF NOT EXISTS mentions (
   created_at   DATETIME        NOT NULL,
   fetched_at   DATETIME        NOT NULL DEFAULT CURRENT_TIMESTAMP,
   PRIMARY KEY (id),
-  UNIQUE KEY uq_mentions_source_external (source, external_id),
+  UNIQUE KEY uq_mentions_brand_source_external (brand_id, source, external_id),
   KEY ix_mentions_brand_created (brand_id, created_at),
   CONSTRAINT fk_mentions_brand FOREIGN KEY (brand_id)
     REFERENCES brands (id) ON DELETE CASCADE

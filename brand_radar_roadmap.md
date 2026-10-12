@@ -5,7 +5,7 @@ competitors, runs local transformer models to find sentiment, emotions and featu
 complaints in a priority matrix on a glassmorphism Streamlit dashboard. Everything is stored in a MySQL
 (MariaDB) database running in XAMPP.
 
-**Current version:** Step 1 – skeleton and database. Build it step by step with Claude Code (see the bottom of this file).
+**Current version:** Step 2 – data sources. Build it step by step with Claude Code (see the bottom of this file).
 
 ---
 
@@ -92,7 +92,7 @@ Python talks to MySQL through **SQLAlchemy + PyMySQL** (`mysql+pymysql://radar:.
 | Table | Key columns |
 |---|---|
 | `brands` | `id`, `name`, `is_own` (your product vs competitor), `keywords` (JSON), `app_store_id`, `play_store_id`, `features` (JSON) |
-| `mentions` | `id`, `brand_id`, `source`, `external_id`, `author`, `text`, `url`, `rating`, `created_at`, `fetched_at` — **unique (`source`, `external_id`)** so re-fetching never duplicates |
+| `mentions` | `id`, `brand_id`, `source`, `external_id`, `author`, `text`, `url`, `rating`, `created_at`, `fetched_at` — **unique (`brand_id`, `source`, `external_id`)** so re-fetching never duplicates, while one post that mentions two brands counts for both |
 | `analysis` | `mention_id`, `sentiment`, `sentiment_score`, `emotion`, `emotion_scores` (JSON), `category`, `feature`, `topic_id`, `model_version` |
 | `topics` | `id`, `brand_id`, `label`, `keywords`, `first_seen`, `last_seen` |
 | `topic_daily` | `topic_id`, `day`, `mentions`, `avg_sentiment` (precomputed for fast charts) |
@@ -172,8 +172,8 @@ Main packages: `streamlit`, `plotly`, `wordcloud`, `sqlalchemy`, `pymysql`, `pyt
 | Step | Feature | Status |
 |---|---|---|
 | 1 | Project skeleton, `.env`, XAMPP MySQL schema, SQLAlchemy models, `check_setup.py` | Done |
-| 2 | Sources: Hacker News, App Store, Google Play, CSV import, dedupe, `fetch_runs` logging | Next |
-| 3 | NLP pipeline: sentiment, emotion, zero-shot category and feature, batch processing | |
+| 2 | Sources: Hacker News, App Store, Google Play, CSV import, dedupe, `fetch_runs` logging | Done |
+| 3 | NLP pipeline: sentiment, emotion, zero-shot category and feature, batch processing | Next |
 | 4 | Topic clustering, daily aggregates, priority score, trend alerts | |
 | 5 | Streamlit dashboard: glass CSS, KPI cards, emotion wheel, trend line, word clouds | |
 | 6 | Priority matrix, feature radar vs competitors, alert badges, executive summary feed | |
@@ -201,5 +201,5 @@ step per session, run it, then commit before moving on.
 
 > Read `brand_radar_roadmap.md`. Do Step 1 only: create the folder layout, `requirements.txt`,
 > `.env.example`, `config.py`, `db/schema.sql` (MySQL/MariaDB, utf8mb4, all tables listed, unique key on
-> mentions source+external_id), `db/models.py`, `db/session.py` and `check_setup.py` that tests the
+> mentions brand_id+source+external_id), `db/models.py`, `db/session.py` and `check_setup.py` that tests the
 > MySQL connection to XAMPP. Explain how to run the schema in phpMyAdmin. Don't build later steps yet.

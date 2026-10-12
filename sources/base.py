@@ -1,0 +1,273 @@
+"""Shared pieces for all data sources: the Source interface, RawMention, brand matching and polite HTTP."""
+
+from __future__ import annotations
+
+import logging
+import re
+import socket
+import threading
+import time
+from collections.abc import Callable, Iterator
+from contextlib import contextmanager
+from dataclasses import dataclass
+from datetime import datetime, timezone
+from html.parser import HTMLParser
+from typing import TYPE_CHECKING, Any, Protocol, runtime_checkable
+from urllib.parse import urlparse
+
+import requests
+from requests.adapters import HTTPAdapter
+from urllib3.util.retry import Retry
+
+from config import settings
+
+if TYPE_CHECKING:
+    from db.models import Brand as BrandModel
+
+log = logging.getLogger(__name__)
+
+
+# ---------------------------------------------------------------- data types
+
+
+@dataclass(frozen=True)
+class BrandSpec:
+    """A plain, session-free snapshot of a row in `brands`, handed to sources."""
+
+    id: int
+    name: str
+    is_own: bool = False
+    keywords: tuple[str, ...] = ()
+    exclude: tuple[str, ...] = ()
+    app_store_id: str | None = None
+    play_store_id: str | None = None
+    features: tuple[str, ...] = ()
+
+    @classmethod
+    def from_model(cls, brand: BrandModel) -> BrandSpec:
+        include, exclude = split_keywords(brand.keywords or [])
+        return cls(
+            id=brand.id,
+            name=brand.name,
+            is_own=bool(brand.is_own),
+            keywords=include,
+            exclude=exclude,
+            app_store_id=brand.app_store_id,
+            play_store_id=brand.play_store_id,
+            features=tuple(brand.features or []),
+        )
+
+
+@dataclass
+class RawMention:
+    """One piece of text from a source, before it is stored."""
+
+    source: str
+    external_id: str
+    text: str
+    created_at: datetime  # naive UTC
+    author: str | None = None
+    url: str | None = None
+    rating: int | None = None
+
+
+@runtime_checkable
+class Source(Protocol):
+    name: str
+    enabled: bool
+    warnings: list[str]
+
+    def fetch(self, brand: BrandSpec, since: datetime) -> list[RawMention]: ...
+
+
+class BaseSource:
+    """Common state for sources. `warnings` collects non-fatal problems from the last fetch."""
+
+    name: str = "base"
+    enabled: bool = True
+
+    def __init__(self) -> None:
+        self.warnings: list[str] = []
+
+    def warn(self, message: str) -> None:
+        log.warning("%s: %s", self.name, message)
+        self.warnings.append(message)
+
+    def reset(self) -> None:
+        self.warnings = []
+
+
+# ---------------------------------------------------------------- time helpers
+
+
+def to_utc_naive(value: datetime) -> datetime:
+    """Convert any datetime to naive UTC. Naive input is treated as local time."""
+    return value.astimezone(timezone.utc).replace(tzinfo=None)
+
+
+def utc_now() -> datetime:
+    return datetime.now(timezone.utc).replace(tzinfo=None)
+
+
+# ---------------------------------------------------------------- text helpers
+
+
+class _TextExtractor(HTMLParser):
+    BREAK_TAGS = {"p", "br", "div", "li", "pre", "blockquote"}
+
+    def __init__(self) -> None:
+        super().__init__(convert_charrefs=True)
+        self.parts: list[str] = []
+
+    def handle_starttag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
+        if tag in self.BREAK_TAGS:
+            self.parts.append("\n")
+
+    def handle_data(self, data: str) -> None:
+        self.parts.append(data)
+
+
+def html_to_text(html: str | None) -> str:
+    """Strip tags, decode entities and tidy whitespace, keeping paragraph breaks."""
+    if not html:
+        return ""
+    parser = _TextExtractor()
+    parser.feed(html)
+    parser.close()
+    lines = (re.sub(r"[ \t\r\f\v]+", " ", line).strip() for line in "".join(parser.parts).split("\n"))
+    return "\n".join(line for line in lines if line)
+
+
+def split_keywords(stored: list[str]) -> tuple[tuple[str, ...], tuple[str, ...]]:
+    """`brands.keywords` holds search keywords plus exclude phrases prefixed with '-'."""
+    include = tuple(k for k in stored if not k.startswith("-"))
+    exclude = tuple(k[1:] for k in stored if k.startswith("-"))
+    return include, exclude
+
+
+def _phrase_pattern(phrase: str) -> re.Pattern[str]:
+    # Phrases with a capital letter are case-sensitive ("Notion" is a product, "notion" is a word).
+    flags = 0 if any(c.isupper() for c in phrase) else re.IGNORECASE
+    return re.compile(rf"(?<!\w){re.escape(phrase)}(?!\w)", flags)
+
+
+def matches_brand(text: str, brand: BrandSpec) -> bool:
+    """True if a keyword appears as a whole word once the exclude phrases are removed."""
+    for phrase in brand.exclude:
+        text = _phrase_pattern(phrase).sub(" ", text)
+    return any(_phrase_pattern(k).search(text) for k in brand.keywords)
+
+
+# ---------------------------------------------------------------- polite HTTP
+
+
+class RateLimiter:
+    """Keeps at least `min_interval` seconds between requests to the same host."""
+
+    def __init__(
+        self,
+        min_interval: float,
+        clock: Callable[[], float] = time.monotonic,
+        sleep: Callable[[float], None] = time.sleep,
+    ) -> None:
+        self.min_interval = min_interval
+        self._clock = clock
+        self._sleep = sleep
+        self._last: dict[str, float] = {}
+        self._lock = threading.Lock()
+
+    def wait(self, key: str) -> None:
+        with self._lock:
+            last = self._last.get(key)
+            if last is not None:
+                remaining = self.min_interval - (self._clock() - last)
+                if remaining > 0:
+                    self._sleep(remaining)
+            self._last[key] = self._clock()
+
+
+def make_session(retries: int | None = None, user_agent: str | None = None) -> requests.Session:
+    """requests.Session with a User-Agent and retries with exponential backoff on 429/5xx."""
+    retry = Retry(
+        total=settings.http_retries if retries is None else retries,
+        backoff_factor=1.0,
+        status_forcelist=(429, 500, 502, 503, 504),
+        allowed_methods=frozenset({"GET"}),
+        respect_retry_after_header=True,
+        raise_on_status=False,
+    )
+    session = requests.Session()
+    adapter = HTTPAdapter(max_retries=retry)
+    session.mount("https://", adapter)
+    session.mount("http://", adapter)
+    session.headers["User-Agent"] = user_agent or settings.http_user_agent
+    session.headers["Accept"] = "application/json"
+    return session
+
+
+class HttpClient:
+    """Thin wrapper adding timeouts and per-host rate limiting to a session."""
+
+    def __init__(
+        self,
+        session: requests.Session | None = None,
+        limiter: RateLimiter | None = None,
+        timeout: float | None = None,
+    ) -> None:
+        self.session = session or make_session()
+        self.limiter = limiter or RateLimiter(settings.http_min_interval)
+        self.timeout = settings.http_timeout if timeout is None else timeout
+
+    def get(self, url: str, params: dict[str, Any] | None = None) -> requests.Response:
+        self.limiter.wait(urlparse(url).netloc)
+        response = self.session.get(url, params=params, timeout=self.timeout)
+        response.raise_for_status()
+        return response
+
+    def get_json(self, url: str, params: dict[str, Any] | None = None) -> Any:
+        return self.get(url, params).json()
+
+
+_shared_client: HttpClient | None = None
+
+
+def shared_client() -> HttpClient:
+    """One client per process, so the rate limiter covers every source."""
+    global _shared_client
+    if _shared_client is None:
+        _shared_client = HttpClient()
+    return _shared_client
+
+
+@contextmanager
+def socket_timeout(seconds: float) -> Iterator[None]:
+    """Temporarily set the default socket timeout, for libraries that don't take one."""
+    previous = socket.getdefaulttimeout()
+    socket.setdefaulttimeout(seconds)
+    try:
+        yield
+    finally:
+        socket.setdefaulttimeout(previous)
+
+
+def with_retries(
+    func: Callable[[], Any],
+    attempts: int,
+    backoff: float = 1.0,
+    sleep: Callable[[float], None] = time.sleep,
+) -> Any:
+    """Call `func`, retrying with exponential backoff (for non-requests libraries)."""
+    for attempt in range(1, attempts + 1):
+        try:
+            return func()
+        except Exception as exc:  # noqa: BLE001 — the caller decides what is fatal
+            if attempt == attempts:
+                raise
+            delay = backoff * 2 ** (attempt - 1)
+            log.info("retry %d/%d after %s: %s", attempt, attempts - 1, type(exc).__name__, exc)
+            sleep(delay)
+    raise RuntimeError("unreachable")
+
+
+def clip(value: str | None, length: int) -> str | None:
+    return None if value is None else value[:length]

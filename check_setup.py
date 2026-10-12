@@ -85,6 +85,19 @@ def check_env() -> bool:
     return env_file.exists()
 
 
+def model_unique_keys() -> list[tuple[str, tuple[str, tuple[str, ...]]]]:
+    from sqlalchemy import UniqueConstraint
+
+    from db.models import Base
+
+    return [
+        (table.name, (str(con.name), tuple(c.name for c in con.columns)))
+        for table in Base.metadata.sorted_tables
+        for con in table.constraints
+        if isinstance(con, UniqueConstraint)
+    ]
+
+
 def check_database() -> None:
     section("MySQL / MariaDB")
     try:
@@ -130,6 +143,21 @@ def check_database() -> None:
                 utf8 = collation.startswith("utf8mb4")
                 report(utf8, table, collation)
                 counts[table] = conn.execute(text(f"SELECT COUNT(*) FROM `{table}`")).scalar_one()
+
+            section("Unique keys (live database vs db/models.py)")
+            live_uniques = conn.execute(
+                text(
+                    "SELECT TABLE_NAME, INDEX_NAME, GROUP_CONCAT(COLUMN_NAME ORDER BY SEQ_IN_INDEX) "
+                    "FROM information_schema.STATISTICS "
+                    "WHERE TABLE_SCHEMA = :db AND NON_UNIQUE = 0 AND INDEX_NAME <> 'PRIMARY' "
+                    "GROUP BY TABLE_NAME, INDEX_NAME"
+                ),
+                {"db": settings.db_name},
+            ).all()
+            live = {(t, name, cols) for t, name, cols in live_uniques}
+            for table, constraint in model_unique_keys():
+                key = (table, constraint[0], ",".join(constraint[1]))
+                report(key in live, f"{table}.{constraint[0]}", f"({', '.join(constraint[1])})")
 
             if counts:
                 section("Row counts")

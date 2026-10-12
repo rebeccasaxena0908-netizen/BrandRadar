@@ -35,10 +35,20 @@ pip install -r requirements.txt
 /Applications/XAMPP/xamppfiles/bin/mysql -u root < db/schema.sql   # create/refresh schema (idempotent)
 python -m pytest -q                                                 # tests
 python check_setup.py                                               # environment + DB check, row counts
+python manage_brands.py                                             # sync brands.yaml -> brands table
+python fetch.py [--brand X] [--source hackernews] [--since-days 30] # fetch mentions
+python fetch.py --csv file.csv --brand Notion                       # CSV import
 ```
 
 ## Layout notes
 
 - `db/schema.sql` is the source of truth for the schema; `db/models.py` must match it
-  (`tests/test_models.py` checks this).
+  (`tests/test_models.py` checks this; `check_setup.py` checks the live unique keys).
+  `schema.sql` only creates missing tables, so schema changes to an existing DB need an `ALTER TABLE`.
+- `mentions` is unique on `(brand_id, source, external_id)`: `external_id` is the source's real ID, and
+  one post that mentions two brands is stored once per brand.
+- Brands live in `brands.yaml`; `python manage_brands.py` syncs them into the `brands` table.
+  `brands.keywords` holds search keywords plus exclude phrases prefixed with `-`.
+- Sources live in `sources/` and implement `fetch(brand, since) -> list[RawMention]`; `fetch.py` runs them,
+  dedupes and writes one `fetch_runs` row per (source, brand).
 - `db/session.py` exposes `get_engine()` and `get_session()`.

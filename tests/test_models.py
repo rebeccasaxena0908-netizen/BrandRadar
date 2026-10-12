@@ -6,6 +6,7 @@ import re
 from pathlib import Path
 
 import pytest
+from sqlalchemy import UniqueConstraint
 
 from db.models import Base, TABLE_NAMES
 
@@ -14,6 +15,7 @@ TABLE_RE = re.compile(r"CREATE TABLE IF NOT EXISTS (\w+) \((.*?)\n\) ENGINE=Inno
 FK_RE = re.compile(
     r"FOREIGN KEY \((\w+)\)\s+REFERENCES (\w+) \((\w+)\) ON DELETE (CASCADE|SET NULL)"
 )
+UNIQUE_RE = re.compile(r"UNIQUE KEY (\w+) \(([^)]*)\)")
 NON_COLUMN = {"PRIMARY", "UNIQUE", "KEY", "CONSTRAINT", "REFERENCES"}
 
 
@@ -59,11 +61,24 @@ def test_same_foreign_keys(table: str) -> None:
     assert sql_fks == model_fks
 
 
-def test_mentions_unique_source_external_id() -> None:
-    assert "UNIQUE KEY uq_mentions_source_external (source, external_id)" in SQL_TABLES["mentions"]
-    uniques = [
-        tuple(c.name for c in con.columns)
-        for con in Base.metadata.tables["mentions"].constraints
-        if con.__class__.__name__ == "UniqueConstraint"
-    ]
-    assert ("source", "external_id") in uniques
+def model_unique_keys(table: str) -> set[tuple[str, tuple[str, ...]]]:
+    return {
+        (con.name, tuple(c.name for c in con.columns))
+        for con in Base.metadata.tables[table].constraints
+        if isinstance(con, UniqueConstraint)
+    }
+
+
+@pytest.mark.parametrize("table", sorted(SQL_TABLES))
+def test_same_unique_keys(table: str) -> None:
+    sql_uniques = {
+        (name, tuple(c.strip() for c in cols.split(",")))
+        for name, cols in UNIQUE_RE.findall(SQL_TABLES[table])
+    }
+    assert sql_uniques == model_unique_keys(table)
+
+
+def test_mentions_unique_per_brand_source_external_id() -> None:
+    assert ("uq_mentions_brand_source_external", ("brand_id", "source", "external_id")) in (
+        model_unique_keys("mentions")
+    )
