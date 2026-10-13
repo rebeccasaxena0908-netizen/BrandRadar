@@ -196,10 +196,10 @@ Models: `cardiffnlp/twitter-roberta-base-sentiment-latest`, `j-hartmann/emotion-
 ## Known limitations
 
 - **English only.** Non-English reviews get analysed as English; very long non-English texts are kept out of topics.
-- **Topic themes can drift.** Topic ids follow their mentions across re-clustering, but with small data
-  the clusters reshape when new mentions arrive, so a manual label in `topic_labels.yaml` can end up on a
-  changed theme. Re-read and re-map them after a big data change (labels that follow their example
-  mentions are planned).
+- **Topic continuity is by meaning.** Each topic stores its centroid embedding; after re-clustering, a
+  cluster keeps an existing topic's id only if it is semantically the same theme (stricter for brands
+  whose themes are close together). When a manually labelled theme disappears, the run reports it and
+  the label is not moved to another theme; check those reports after big data changes.
 - **Few free social sources.** Evernote and ClickUp get almost nothing from Mastodon and dev.to; Reddit
   (optional, closing in 2027) was the main social source for them.
 - **One feature per mention.** A review about sync *and* pricing gets one feature; about 15% of mentions name several.

@@ -1,9 +1,9 @@
 # Manual topic labels. `python -m nlp.topics` keeps these instead of the generated label.
 # Find ids with:  python -m nlp.topics   (each topic is printed as "#id label [category]")
 #
-# Caution: topic ids follow their members across re-clustering, but when new data arrives the members
-# of a topic can shift, so an id's theme can drift. After a big data change, re-read each topic's
-# mentions and re-map these (planned: overrides that follow their example mentions automatically).
+# Topic ids stay on the same theme across re-clustering (matched by centroid embedding). If a labelled
+# theme disappears, `python -m nlp.topics` prints "manual label … theme not found" and the label is
+# not moved to another theme: re-check this file when that happens.
 #
 # Re-mapped 2026-10-13 after Step 8 (dev.to + Mastodon) by reading 5 mentions of each topic.
 overrides:

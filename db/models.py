@@ -101,6 +101,7 @@ class Topic(Base):
     trend: Mapped[Optional[float]] = mapped_column(Float)  # NULL when last week had 0 mentions
     quadrant: Mapped[Optional[str]] = mapped_column(String(16))
     scored_at: Mapped[Optional[datetime]] = mapped_column(DateTime)
+    centroid: Mapped[Optional[list[float]]] = mapped_column(JSON)  # mean member embedding (see nlp/topics.py)
 
     brand: Mapped[Brand] = relationship(back_populates="topics")
     daily: Mapped[list[TopicDaily]] = relationship(back_populates="topic", passive_deletes=True)

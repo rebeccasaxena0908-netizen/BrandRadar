@@ -98,8 +98,10 @@ python tools/screenshot.py --url http://localhost:8501 --name stepN --motion   #
   (public hashtag timelines, English, opted-in only), dev.to (brand tag). dev.to is in
   `TOPIC_EXCLUDED_SOURCES`: makers' self-promotion polluted complaint topics and caused a false spike
   alert. Social sources cap 3 mentions per author per brand per fetch (`cap_per_author`).
-- Topic ids follow members but themes drift when data changes; re-map `topic_labels.yaml` after big
-  data changes (sticky overrides that follow their example mentions are a planned follow-up).
+- Topic continuity: `topics.centroid` (mean member embedding) decides which existing topic a new cluster
+  continues; member overlap only breaks ties. The bar is CENTROID_MATCH_MIN (0.80), raised to the nearest
+  sibling topic's similarity + SIBLING_MARGIN for crowded brands (Evernote topics sit ~0.89 apart).
+  Manual labels whose theme disappears are reported (`lost_labels`), never reused for another theme.
 - This machine is an 8 GB M2: MPS memory is shared with the system. Keep zero-shot input short
   (`NLP_ZERO_SHOT_MAX_TOKENS`), batches small, and free MPS memory between batches.
   bart-large-mnli zero-shot is ~95% of the runtime (~1 s per mention).

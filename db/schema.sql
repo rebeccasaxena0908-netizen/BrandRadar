@@ -59,6 +59,7 @@ CREATE TABLE IF NOT EXISTS topics (
   trend           FLOAT        NULL,
   quadrant        VARCHAR(16)  NULL,
   scored_at       DATETIME     NULL,
+  centroid        JSON         NULL,      -- mean member embedding; keeps topic ids on the same theme
   PRIMARY KEY (id),
   KEY ix_topics_brand (brand_id),
   CONSTRAINT fk_topics_brand FOREIGN KEY (brand_id)

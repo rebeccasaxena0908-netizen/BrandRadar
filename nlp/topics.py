@@ -52,7 +52,16 @@ EXTRA_STOP_WORDS = {
     "ts", "bro", "gud", "tried", "helped", "thanks", "hn", "show", "hi",
 }
 SEED = 42
-MATCH_SHARE = 0.5  # share of a cluster's previously-assigned mentions that must share one old topic
+MATCH_SHARE = 0.5  # overlap-only fallback: share of a cluster's old members that must share one old topic
+# A new cluster continues an existing topic only if their centroids (mean member embedding) are this
+# similar; member overlap only breaks ties. Overlap alone let a reshaped cluster inherit another
+# theme's id after new data arrived (Step 8: "Daily Note" -> an iCloud cluster).
+CENTROID_MATCH_MIN = 0.80
+# ...and closer to it than its nearest sibling topic is, plus this margin. Some brands' themes are close
+# (Evernote's pricing/ads/leaving topics reach 0.89), so one global threshold would let a neighbour
+# inherit an id; the bar rises for crowded topics and stays at the minimum for distinct ones.
+SIBLING_MARGIN = 0.02
+OVERLAP_WEIGHT = 0.25
 # Minimum cluster size grows with the data: max(TOPIC_MIN_SIZE, this share of the complaints).
 MIN_SIZE_SHARE = 0.04
 # Mostly non-English texts form clusters of their own ("en la que"); the models are English-only.
@@ -103,6 +112,7 @@ class Cluster:
     label: str = ""
     category: str | None = None
     topic_id: int | None = None
+    centroid: np.ndarray | None = None  # normalised mean of the members' embeddings
 
 
 @dataclass
@@ -117,6 +127,7 @@ class BrandResult:
     assigned: int = 0
     outliers: int = 0
     labels: list[tuple[int | None, str, str | None]] = field(default_factory=list)  # (topic id, label, category)
+    lost_labels: list[tuple[int, str]] = field(default_factory=list)  # manual labels whose theme was not found
 
 
 # ---------------------------------------------------------------- pure helpers
@@ -201,17 +212,38 @@ def load_label_overrides(path: Path = LABELS_FILE) -> dict[int, str]:
     return overrides
 
 
-def match_clusters(clusters: Sequence[Cluster]) -> None:
-    """Set cluster.topic_id to the existing topic it continues, by member overlap (greedy, 1:1)."""
-    candidates = []
+def centroid(vectors: np.ndarray) -> np.ndarray:
+    mean = np.asarray(vectors, dtype=float).mean(axis=0)
+    norm = np.linalg.norm(mean)
+    return mean / norm if norm else mean
+
+
+def match_clusters(clusters: Sequence[Cluster], existing: dict[int, np.ndarray | None] | None = None) -> None:
+    """Set cluster.topic_id to the existing topic it continues (greedy, 1:1).
+
+    With centroids on both sides, a pair qualifies only if cosine(centroid) reaches the topic's bar:
+    CENTROID_MATCH_MIN, raised to (similarity to its nearest sibling topic + SIBLING_MARGIN) for crowded
+    topics. Qualifying pairs are scored cosine + OVERLAP_WEIGHT * overlap share. Without a centroid (older data), the overlap rule
+    applies: at least MATCH_SHARE of the cluster's previously-assigned members share that topic."""
+    existing = existing or {}
+    known = {t: c for t, c in existing.items() if c is not None}
+    bar = {t: max([CENTROID_MATCH_MIN] + [float(c @ o) + SIBLING_MARGIN for u, o in known.items() if u != t])
+           for t, c in known.items()}
+    candidates: list[tuple[float, int, int]] = []
     for index, cluster in enumerate(clusters):
         olds = Counter(m.old_topic_id for m in cluster.members if m.old_topic_id is not None)
         total = sum(olds.values())
-        for old_id, count in olds.items():
-            if count / total >= MATCH_SHARE:
-                candidates.append((count, index, old_id))
+        for old_id in set(olds) | {t for t, c in existing.items() if c is not None}:
+            share = olds.get(old_id, 0) / total if total else 0.0
+            old_centroid = existing.get(old_id)
+            if cluster.centroid is not None and old_centroid is not None:
+                cos = float(np.dot(cluster.centroid, old_centroid))
+                if cos >= bar[old_id]:
+                    candidates.append((cos + OVERLAP_WEIGHT * share, index, old_id))
+            elif share >= MATCH_SHARE:  # old rule: ties go to the cluster holding more of the topic's members
+                candidates.append((share + olds.get(old_id, 0) * 1e-6, index, old_id))
     claimed: set[int] = set()
-    for count, index, old_id in sorted(candidates, reverse=True):
+    for _, index, old_id in sorted(candidates, reverse=True):
         if clusters[index].topic_id is None and old_id not in claimed:
             clusters[index].topic_id = old_id
             claimed.add(old_id)
@@ -340,7 +372,8 @@ def save_brand(
     for cluster in clusters:
         dates = [m.created_at for m in cluster.members]
         values = {"label": cluster.label[:255], "category": cluster.category, "keywords": cluster.keywords,
-                  "first_seen": min(dates), "last_seen": max(dates)}
+                  "first_seen": min(dates), "last_seen": max(dates),
+                  "centroid": None if cluster.centroid is None else [round(float(x), 5) for x in cluster.centroid]}
         if cluster.topic_id is None:
             topic = Topic(brand_id=brand_id, **values)
             session.add(topic)
@@ -357,6 +390,28 @@ def save_brand(
             .values(topic_id=cluster.topic_id).execution_options(synchronize_session=False)
         )
     rebuild_topic_daily(session, brand_id)
+
+
+def existing_centroids(
+    factory: sessionmaker[Session], brand_id: int, complaints: Sequence[Complaint], embeddings: np.ndarray
+) -> dict[int, np.ndarray | None]:
+    """Centroid of every existing topic of the brand: stored, or (first time) seeded from the embeddings
+    of its current members in this run. None when neither is available (then overlap decides)."""
+    with factory() as session:
+        stored = dict(session.execute(select(Topic.id, Topic.centroid).where(Topic.brand_id == brand_id)).all())
+    by_topic: dict[int, list[int]] = defaultdict(list)
+    for i, c in enumerate(complaints):
+        if c.old_topic_id is not None:
+            by_topic[c.old_topic_id].append(i)
+    result: dict[int, np.ndarray | None] = {}
+    for topic_id, vector in stored.items():
+        if vector:
+            result[topic_id] = np.asarray(vector, dtype=float)
+        elif by_topic.get(topic_id):
+            result[topic_id] = centroid(embeddings[by_topic[topic_id]])
+        else:
+            result[topic_id] = None
+    return result
 
 
 def rebuild_topic_daily(session: Session, brand_id: int) -> int:
@@ -435,14 +490,22 @@ def run_topics(
                 result.outliers += 1
             else:
                 grouped[topic].append(complaint)
+        index_of = {c.mention_id: i for i, c in enumerate(complaints)}
         clusters = []
         for t, members in sorted(grouped.items()):
             raw = keywords.get(t, [])
             readable = frequent_keywords(raw, [m.text for m in members]) or raw[:5]
             clusters.append(Cluster(members=members, keywords=readable,
-                                    category=dominant_category([m.category for m in members])))
+                                    category=dominant_category([m.category for m in members]),
+                                    centroid=centroid(embeddings[[index_of[m.mention_id] for m in members]])))
         assign_labels(clusters)
-        match_clusters(clusters)
+        existing = existing_centroids(factory, brand.id, complaints, embeddings)
+        match_clusters(clusters, existing)
+        matched = {c.topic_id for c in clusters}
+        result.lost_labels = [(t, overrides[t]) for t in existing if t in overrides and t not in matched]
+        for topic_id, label in result.lost_labels:
+            log.warning("%s: manual label %r (topic #%d): theme not found this run; the topic is now inactive",
+                        brand.name, label, topic_id)
         result.reused = sum(c.topic_id is not None for c in clusters)
         result.created = len(clusters) - result.reused
         result.clusters = len(clusters)
@@ -476,6 +539,8 @@ def main(argv: Sequence[str] | None = None) -> int:
         print(f"{r.brand:<10} {r.complaints} complaints -> {r.clusters} topics "
               f"({r.reused} reused, {r.created} new), {r.assigned} assigned, {r.outliers} outliers, "
               f"{r.non_english} non-English skipped")
+        for topic_id, label in r.lost_labels:
+            print(f"   ⚠ manual label {label!r} (#{topic_id}): theme not found this run — topic now inactive")
         for topic_id, label, category in r.labels:
             print(f"   #{topic_id:<4} {label:<40} [{category}]")
     return 0

@@ -9,7 +9,7 @@ from pathlib import Path
 
 import numpy as np
 import pytest
-from sqlalchemy import func, select
+from sqlalchemy import delete, func, select
 from sqlalchemy.orm import Session, sessionmaker
 
 from db.models import Analysis, Brand, Mention, Topic, TopicDaily
@@ -278,3 +278,101 @@ def test_excluded_sources_stay_out_of_topics(factory: sessionmaker[Session], not
     assert result.complaints == 54  # the 12 dev.to posts were not counted
     topics = topic_of(factory)
     assert all(topics[p] is None for p in promo)
+
+
+# ---------------------------------------------------------------- drift (Step 8 regression)
+
+
+def _unit(seed: int) -> np.ndarray:
+    v = np.random.default_rng(seed).normal(size=32)
+    return v / np.linalg.norm(v)
+
+
+def test_step8_drift_theme_keeps_its_id_by_centroid() -> None:
+    """Step 8: new mentions reshaped Obsidian's clusters. An iCloud-dominated cluster held MORE of the old
+    "Daily Note" members (11) than the re-formed Daily Note cluster (9), so the overlap rule handed
+    Daily Note's id (#49) to the iCloud cluster and Daily Note got a new id, a duplicate alert and an
+    orphaned label. With centroids, the id stays with the theme."""
+    from nlp.topics import centroid
+
+    daily, icloud = _unit(1), _unit(2)
+    assert float(daily @ icloud) < 0.5  # different themes
+
+    def members(n_old: int, n_new: int) -> list[Complaint]:
+        old = [Complaint(i, "t", datetime(2026, 10, 1), "bug", 49) for i in range(n_old)]
+        return old + [Complaint(100 + i, "t", datetime(2026, 10, 9), "bug", None) for i in range(n_new)]
+
+    near = lambda v, s: centroid(np.stack([v + np.random.default_rng(s + i).normal(size=32) * 0.05 for i in range(8)]))  # noqa: E731
+    icloud_cluster = Cluster(members=members(11, 30), keywords=[], centroid=near(icloud, 10))
+    daily_cluster = Cluster(members=members(9, 13), keywords=[], centroid=near(daily, 20))
+
+    # the old rule (overlap only) reproduces the bug
+    legacy = [Cluster(members=icloud_cluster.members, keywords=[]), Cluster(members=daily_cluster.members, keywords=[])]
+    match_clusters(legacy)
+    assert legacy[0].topic_id == 49 and legacy[1].topic_id is None
+
+    # centroids keep #49 on Daily Note; the iCloud cluster becomes a new topic
+    match_clusters([icloud_cluster, daily_cluster], existing={49: daily})
+    assert daily_cluster.topic_id == 49
+    assert icloud_cluster.topic_id is None
+
+
+def test_centroid_needs_similarity_overlap_only_breaks_ties() -> None:
+    a = _unit(5)
+    twin_1 = Cluster(members=[Complaint(1, "t", datetime(2026, 10, 1), "bug", None)], keywords=[], centroid=a)
+    twin_2 = Cluster(members=[Complaint(2, "t", datetime(2026, 10, 1), "bug", 7)], keywords=[], centroid=a)
+    match_clusters([twin_1, twin_2], existing={7: a})
+    assert twin_2.topic_id == 7 and twin_1.topic_id is None  # same similarity: the one with overlap wins
+
+
+def test_lost_label_is_reported_not_reused(factory: sessionmaker[Session], notion: BrandSpec) -> None:
+    ids = add_complaints(factory, notion, all_texts())
+    embedder = FakeEmbedder()
+    run_topics(factory, embedder, brands=["Notion"], min_complaints=10, min_size=10, outlier_similarity=0.5, overrides={})
+    with factory() as s:
+        ads_topic = next(t.id for t in s.scalars(select(Topic)) if "ads" in " ".join(t.keywords).lower())
+        assert all(t.centroid and len(t.centroid) == 32 for t in s.scalars(select(Topic)))  # centroids stored
+        # the ads complaints disappear (e.g. deleted), and a new theme of the same size arrives
+        ads_ids = [m.id for m in s.scalars(select(Mention).where(Mention.id.in_(ids))) if "ads" in m.text]
+        s.execute(delete(Analysis).where(Analysis.mention_id.in_(ads_ids)))  # SQLite here has no FK cascade
+        s.execute(delete(Mention).where(Mention.id.in_(ads_ids)))
+        s.commit()
+    add_complaints(factory, notion, [f"export to pdf breaks tables #{k}" for k in range(18)], prefix="pdf")
+    GROUPS["pdf"] = ["export"]  # teach the fake embedder the new theme (existing centres stay identical:
+    try:                         # the random draws happen in the same order)
+        [result] = run_topics(factory, FakeEmbedder(), brands=["Notion"], min_complaints=10, min_size=10,
+                              outlier_similarity=0.5, overrides={ads_topic: "Ad Overload"})
+    finally:
+        del GROUPS["pdf"]
+    assert result.lost_labels == [(ads_topic, "Ad Overload")]
+    with factory() as s:
+        assert s.scalar(select(func.count()).select_from(Analysis).where(Analysis.topic_id == ads_topic)) == 0  # inactive
+        pdf_topic = {a.topic_id for a in s.scalars(select(Analysis).join(Mention).where(Mention.text.like("export%")))}
+    assert ads_topic not in pdf_topic
+
+
+def test_crowded_topics_need_a_closer_match(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Evernote-like brands have themes ~0.89 apart. If theme A vanishes and theme B splits in two, the
+    second half of B must not inherit A's id just because B and A are neighbours."""
+    import nlp.topics as topics_module
+
+    base = _unit(30)
+    a, b = base + _unit(31) * 0.35, base + _unit(32) * 0.35
+    a, b = a / np.linalg.norm(a), b / np.linalg.norm(b)
+    ab = float(a @ b)
+    assert 0.80 < ab < 0.97  # two close themes
+    halves = []
+    for seed in (33, 34):  # B split into two clusters, each a little off B
+        v = b + _unit(seed) * 0.12
+        halves.append(v / np.linalg.norm(v))
+    assert all(0.80 <= float(h @ a) < ab + topics_module.SIBLING_MARGIN for h in halves)  # neighbours of A
+
+    def run() -> list[int | None]:
+        clusters = [Cluster(members=[Complaint(i, "t", datetime(2026, 10, 1), "bug", None)], keywords=[], centroid=h)
+                    for i, h in enumerate(halves)]
+        match_clusters(clusters, existing={1: a, 2: b})
+        return [c.topic_id for c in clusters]
+
+    assert sorted(run(), key=str) == [2, None]  # one half continues B, the other becomes a new topic
+    monkeypatch.setattr(topics_module, "SIBLING_MARGIN", -1.0)  # i.e. a fixed 0.80 threshold
+    assert sorted(run(), key=str) == [1, 2]  # ...which hands A's id to half of B: the drift this prevents
