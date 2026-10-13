@@ -7,6 +7,7 @@ Exits with status 1 if any check fails.
 
 from __future__ import annotations
 
+import os
 import re
 import sys
 from importlib import metadata
@@ -197,6 +198,38 @@ def check_models() -> None:
     report(device != "cpu", "GPU for inference", f"device = {device}", warn_only=True)
 
 
+def check_extras() -> None:
+    section("Collector and demo data")
+    try:
+        from sqlalchemy import create_engine, text
+
+        from config import settings
+        from db.session import get_engine
+    except Exception as exc:  # noqa: BLE001
+        report(False, "Import database modules", repr(exc))
+        return
+    try:
+        with get_engine().connect() as conn:
+            row = conn.execute(text("SELECT status, finished_at FROM collector_runs ORDER BY started_at DESC LIMIT 1")).first()
+        if row is None:
+            report(False, "Collector has run", "no cycles yet — run: python collector.py --once", warn_only=True)
+        else:
+            report(row[0] in ("ok", "partial", "running"), "Last collector cycle", f"{row[0]}, finished {row[1]} UTC",
+                   warn_only=True)
+    except Exception as exc:  # noqa: BLE001
+        report(False, "Read collector_runs", repr(exc))
+    demo_db = os.getenv("DEMO_DB_NAME", "brand_radar_demo")
+    demo_url = settings.database_url.replace(f"/{settings.db_name}?", f"/{demo_db}?")
+    try:
+        engine = create_engine(demo_url)
+        with engine.connect() as conn:
+            n = conn.execute(text("SELECT COUNT(*) FROM mentions")).scalar_one()
+        engine.dispose()
+        report(n > 0, f"Demo database {demo_db}", f"{n:,} mentions (BRAND_RADAR_DEMO=1 streamlit run app.py)", warn_only=True)
+    except Exception:  # noqa: BLE001 — optional
+        report(False, f"Demo database {demo_db}", "not built — optional: python seed_demo.py", warn_only=True)
+
+
 def main() -> int:
     print("Brand Radar setup check")
     check_python()
@@ -204,6 +237,7 @@ def main() -> int:
     check_models()
     if check_env():
         check_database()
+        check_extras()
 
     print()
     if failures:

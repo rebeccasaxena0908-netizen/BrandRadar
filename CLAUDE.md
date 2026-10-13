@@ -45,6 +45,9 @@ python -m nlp.topics [--brand X]                                    # cluster co
 python -m nlp.priority [--as-of DATE] [--report]                    # priority snapshot + spike alerts
 python manage_brands.py --recheck-mentions [--apply]                # after changing excludes
 streamlit run app.py                                                # dashboard
+python collector.py [--once]                                        # fetch -> NLP -> topics -> priority, every 6 h
+scripts/start.sh                                                    # collector (background) + dashboard
+python seed_demo.py && BRAND_RADAR_DEMO=1 streamlit run app.py      # demo database + dashboard on it
 python tools/screenshot.py --url http://localhost:8501 --name stepN --motion   # 1440px + 390px captures
 ```
 
@@ -81,6 +84,12 @@ python tools/screenshot.py --url http://localhost:8501 --name stepN --motion   #
   Glass + padding go on the wrapper (`stVerticalBlockBorderWrapper:has(> div > .st-key-glass-…)`), never on
   the keyed block: Streamlit sizes Plotly from the block, so padding there makes charts overflow.
   UI decisions and screenshots: `docs/ui-decisions.md`.
+- Collector: stages are injectable (`Stages`) for tests; NLP and topics run via `run_in_child` (plain
+  spawn Process + Queue, never a Pool: a dead Pool worker hangs `apply`). Ctrl+C / SIGTERM set `STOP`;
+  `install_signal_handlers` restores SIGINT because background jobs of a script start with it ignored.
+  Each cycle is a `collector_runs` row (ok / partial / failed); the header status reads it.
+- Demo data lives in `brand_radar_demo` (`BRAND_RADAR_DEMO=1` switches `config`); never write demo data
+  to the real database, and the collector refuses demo mode.
 - Brand matching: `exclude` phrases are removed before matching; `exclude_if` words drop the mention.
 - This machine is an 8 GB M2: MPS memory is shared with the system. Keep zero-shot input short
   (`NLP_ZERO_SHOT_MAX_TOKENS`), batches small, and free MPS memory between batches.

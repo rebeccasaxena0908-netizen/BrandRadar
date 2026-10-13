@@ -129,3 +129,20 @@ CREATE TABLE IF NOT EXISTS fetch_runs (
   CONSTRAINT fk_fetch_runs_brand FOREIGN KEY (brand_id)
     REFERENCES brands (id) ON DELETE SET NULL
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- One row per collector cycle (fetch -> NLP -> topics -> priority); the dashboard's "Updated … ago"
+CREATE TABLE IF NOT EXISTS collector_runs (
+  id              BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+  started_at      DATETIME     NOT NULL,
+  finished_at     DATETIME     NULL,
+  status          VARCHAR(16)  NOT NULL DEFAULT 'running',  -- running / ok / partial / failed
+  new_mentions    INT UNSIGNED NOT NULL DEFAULT 0,
+  analysed        INT UNSIGNED NOT NULL DEFAULT 0,
+  analysis_failed INT UNSIGNED NOT NULL DEFAULT 0,
+  topics          INT UNSIGNED NOT NULL DEFAULT 0,
+  alerts_created  INT UNSIGNED NOT NULL DEFAULT 0,
+  stage_seconds   JSON         NULL,
+  error           TEXT         NULL,
+  PRIMARY KEY (id),
+  KEY ix_collector_runs_started (started_at)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;

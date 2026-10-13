@@ -33,7 +33,8 @@ class Settings:
     db_name: str
     db_user: str
     db_password: str
-    fetch_interval_minutes: int
+    collector_interval_hours: float
+    demo: bool
     fetch_since_days: int
     max_items_per_source: int
     appstore_countries: tuple[str, ...]
@@ -73,14 +74,21 @@ class Settings:
         return bool(self.reddit_client_id and self.reddit_client_secret)
 
 
+def _get_bool(name: str) -> bool:
+    return os.getenv(name, "").strip().lower() in ("1", "true", "yes", "on")
+
+
 def load_settings() -> Settings:
+    demo = _get_bool("BRAND_RADAR_DEMO")
     return Settings(
         db_host=os.getenv("DB_HOST", "127.0.0.1"),
         db_port=_get_int("DB_PORT", 3306),
-        db_name=os.getenv("DB_NAME", "brand_radar"),
+        # BRAND_RADAR_DEMO=1 points everything at the separate demo database (see seed_demo.py)
+        db_name=os.getenv("DEMO_DB_NAME", "brand_radar_demo") if demo else os.getenv("DB_NAME", "brand_radar"),
         db_user=os.getenv("DB_USER", "radar"),
         db_password=os.getenv("DB_PASSWORD", ""),
-        fetch_interval_minutes=_get_int("FETCH_INTERVAL_MINUTES", 60),
+        collector_interval_hours=_get_float("COLLECTOR_INTERVAL_HOURS", 6.0),
+        demo=demo,
         fetch_since_days=_get_int("FETCH_SINCE_DAYS", 30),
         max_items_per_source=_get_int("MAX_ITEMS_PER_SOURCE", 500),
         appstore_countries=_get_list("APPSTORE_COUNTRIES", "us,in,gb,ca,au"),

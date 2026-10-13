@@ -5,7 +5,7 @@ competitors, runs local transformer models to find sentiment, emotions and featu
 complaints in a priority matrix on a glassmorphism Streamlit dashboard. Everything is stored in a MySQL
 (MariaDB) database running in XAMPP.
 
-**Current version:** Step 6 – dashboard (part 2). Build it step by step with Claude Code (see the bottom of this file).
+**Current version:** Step 7 – collector, live refresh, demo data (core app complete). Build it step by step with Claude Code (see the bottom of this file).
 
 ---
 
@@ -178,8 +178,8 @@ Main packages: `streamlit`, `plotly`, `wordcloud`, `sqlalchemy`, `pymysql`, `pyt
 | 4 | Topic clustering, daily aggregates, priority score, trend alerts | Done |
 | 5 | Streamlit dashboard: glass CSS, KPI cards, emotion wheel, trend line, word clouds | Done |
 | 6 | Priority matrix, feature radar vs competitors, alert badges, executive summary feed | Done |
-| 7 | Collector scheduler + live-refreshing fragments; demo seed data | Next |
-| 8 | Optional Reddit source (only if you have approved access) | |
+| 7 | Collector scheduler + live-refreshing fragments; demo seed data | Done |
+| 8 | Optional Reddit source (only if you have approved access) | Next |
 | 9 | Export: PDF/CSV weekly report, email or Slack alert | |
 | 10 | Optional: LLM-written executive summary, multi-language reviews | |
 

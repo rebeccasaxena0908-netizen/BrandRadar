@@ -1,6 +1,7 @@
 # Brand Radar – UI decisions
 
-Design decided 12 Oct 2026. Step 5 done 13 Oct 2026 (commit `65ea0c1`); Step 6 done 13 Oct 2026.
+Design decided 12 Oct 2026. Step 5 done 13 Oct 2026 (commit `65ea0c1`); Step 6 done 13 Oct 2026 (`8dbdfa7`);
+Step 7 done 13 Oct 2026.
 
 ## Chosen design: "Blush glass"
 
@@ -90,6 +91,20 @@ list beside it; the feature radar and executive summary sit side by side below. 
 - Changes are written in words ("up from 2 last week", "same as last week"); pills and hovers keep "3.5×".
 - Three quotes (negative, neutral, positive): readable English, 60–220 characters, no links; the strongest
   negative/positive and the most neutral, with source, star rating and date.
+
+## Step 7 – live refresh, collector status, demo mode
+
+| | |
+|---|---|
+| Demo data, desktop (1440 px) | [step7-demo-desktop.png](screenshots/step7-demo-desktop.png) |
+
+- **Live parts** (`@st.fragment(run_every="60s")`): the KPI row, the alert pills and the header status.
+  Charts keep `st.cache_data(ttl=60)` and update on the next interaction.
+- **Header status** under the subtitle: a green dot and "Updated 12 min ago", from the last ok/partial
+  collector cycle. An amber badge appears when the last cycle had errors or failed, or when the data is
+  older than 2 × `COLLECTOR_INTERVAL_HOURS` ("overdue"). "· collecting…" shows while a cycle runs.
+- **Demo data pill**: a small berry pill on its own line under the subtitle. Placing it after the
+  wordmark pushed it into the Brand selector, and inline with the subtitle made the subtitle wrap.
 
 ## Lessons for future UI work
 

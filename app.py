@@ -20,7 +20,7 @@ from ui import data, insights
 from ui.components import (
     BERRY, COMPLAINT_CLOUD_COLOURS, EMOTION_COLOURS, INK, PRAISE_CLOUD_COLOURS, SENTIMENT_COLOURS,
     background_html, brand_colours, delta_html, empty_state, glass_card, inject_styles, kpi_card,
-    section_title, show_chart, wordcloud_png, wordmark_html,
+    section_title, show_chart, status_html, wordcloud_png, wordmark_html,
 )
 
 DEFAULT_DAYS = 14  # previous 14 days exist in our ~30 days of data, so KPI deltas are real
@@ -47,8 +47,11 @@ def header(brands: pd.DataFrame) -> tuple[pd.Series, list[pd.Series], date, date
             [1.35, 0.95, 2.0, 1.4, 1.3], vertical_alignment="top", gap="medium"
         )
         with logo:
-            st.markdown(wordmark_html() + '<div class="br-subtitle">Sentiment &amp; competitor radar</div>',
+            demo = ('<div class="br-demo-row"><em class="br-demo-pill" title="BRAND_RADAR_DEMO=1: fictional data '
+                    'from seed_demo.py">Demo data</em></div>' if settings.demo else "")
+            st.markdown(wordmark_html() + f'<div class="br-subtitle">Sentiment &amp; competitor radar</div>{demo}',
                         unsafe_allow_html=True)
+            live_status()
         brand_name = brand_col.selectbox("Brand", names, index=own_index, key="brand")
         others = [n for n in names if n != brand_name]
         competitors = comp_col.multiselect("Competitors", others, default=others)
@@ -68,6 +71,32 @@ def header(brands: pd.DataFrame) -> tuple[pd.Series, list[pd.Series], date, date
     brand = brands.loc[brands["name"] == brand_name].iloc[0]
     comps = [brands.loc[brands["name"] == n].iloc[0] for n in competitors]
     return brand, comps, start, end, sources
+
+
+# ---------------------------------------------------------------- live parts (refresh without reloading the page)
+
+
+@st.fragment(run_every="60s")
+def live_status() -> None:
+    from datetime import datetime, timezone
+
+    latest, last_ok = data.collector_runs()
+    s = data.collector_status(latest, last_ok, datetime.now(timezone.utc).replace(tzinfo=None),
+                              settings.collector_interval_hours)
+    st.markdown(status_html(s.text, s.warning, s.running, s.has_runs), unsafe_allow_html=True)
+
+
+@st.fragment(run_every="60s")
+def live_kpis(brand: pd.Series, start: date, end: date, sources: tuple[str, ...], days: int) -> None:
+    prev_start, prev_end = data.previous_period(start, end)
+    current = data.mentions((int(brand["id"]),), start, end, sources)
+    previous = data.mentions((int(brand["id"]),), prev_start, prev_end, sources)
+    kpi_row(brand, current, previous, days)
+
+
+@st.fragment(run_every="60s")
+def live_alerts(brand: pd.Series, start: date, end: date) -> None:
+    alert_pills(brand, start, end)
 
 
 # ---------------------------------------------------------------- KPI row
@@ -463,7 +492,7 @@ def main() -> None:
     previous = data.mentions((int(brand["id"]),), prev_start, prev_end, sources)
     colours = brand_colours(brand["name"], [c["name"] for c in comps])
 
-    kpi_row(brand, current[current["brand_id"] == brand["id"]], previous, days)
+    live_kpis(brand, start, end, sources, days)
     left, right = st.columns([1, 1.45], gap="medium")
     with left:
         emotion_wheel(brand, comps, current, colours)
@@ -475,7 +504,7 @@ def main() -> None:
     with wide:
         matrix = priority_matrix(brand)
     with side:
-        alert_pills(brand, start, end)
+        live_alerts(brand, start, end)
         ranked_topics(matrix)
     left, right = st.columns(2, gap="medium")
     with left:

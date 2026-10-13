@@ -19,3 +19,7 @@ hf_cache/
 # Editors
 .vscode/
 .idea/
+
+# Collector
+.collector.lock
+logs/

@@ -6,7 +6,7 @@ from config import load_settings
 
 ENV_VARS = (
     "DB_HOST", "DB_PORT", "DB_NAME", "DB_USER", "DB_PASSWORD",
-    "FETCH_INTERVAL_MINUTES", "ALERT_TREND_RATIO", "ALERT_MIN_MENTIONS",
+    "COLLECTOR_INTERVAL_HOURS", "BRAND_RADAR_DEMO", "DEMO_DB_NAME", "ALERT_TREND_RATIO", "ALERT_MIN_MENTIONS",
     "FETCH_SINCE_DAYS", "MAX_ITEMS_PER_SOURCE", "APPSTORE_COUNTRIES", "PLAYSTORE_LANG",
     "PLAYSTORE_COUNTRY", "HTTP_TIMEOUT", "HTTP_RETRIES", "HTTP_MIN_INTERVAL", "HTTP_USER_AGENT",
     "NLP_BATCH_SIZE", "NLP_MAX_TOKENS", "NLP_ZERO_SHOT_MAX_TOKENS", "NLP_DEVICE", "FEATURE_THRESHOLD",
@@ -28,7 +28,8 @@ def test_defaults(clean_env: pytest.MonkeyPatch) -> None:
     assert s.db_host == "127.0.0.1"
     assert s.db_port == 3306
     assert s.db_name == "brand_radar"
-    assert s.fetch_interval_minutes == 60
+    assert s.collector_interval_hours == 6.0
+    assert s.demo is False and s.db_name == "brand_radar"
     assert s.alert_trend_ratio == 2.0
     assert s.alert_min_mentions == 5
     assert s.reddit_enabled is False
@@ -64,3 +65,13 @@ def test_reddit_enabled_needs_id_and_secret(clean_env: pytest.MonkeyPatch) -> No
     assert load_settings().reddit_enabled is False
     clean_env.setenv("REDDIT_CLIENT_SECRET", "xyz")
     assert load_settings().reddit_enabled is True
+
+
+def test_demo_mode_switches_database(clean_env: pytest.MonkeyPatch) -> None:
+    clean_env.setenv("DB_NAME", "brand_radar")
+    clean_env.setenv("BRAND_RADAR_DEMO", "1")
+    s = load_settings()
+    assert s.demo is True and s.db_name == "brand_radar_demo"
+    assert s.database_url.endswith("/brand_radar_demo?charset=utf8mb4")
+    clean_env.setenv("BRAND_RADAR_DEMO", "0")
+    assert load_settings().db_name == "brand_radar"

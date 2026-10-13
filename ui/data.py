@@ -123,6 +123,22 @@ def query_feature_mentions(engine: Engine, brand_ids: tuple[int, ...]) -> pd.Dat
     return df
 
 
+def query_collector_runs(engine: Engine) -> tuple[dict[str, Any] | None, datetime | None]:
+    """(latest cycle, finish time of the latest successful cycle). 'Successful' = ok or partial:
+    a partial cycle still delivered data, it just had an error somewhere."""
+    with engine.connect() as conn:
+        latest = conn.execute(text(
+            "SELECT status, started_at, finished_at FROM collector_runs ORDER BY started_at DESC LIMIT 1"
+        )).mappings().first()
+        last_ok = conn.execute(text(
+            "SELECT MAX(finished_at) FROM collector_runs WHERE status IN ('ok', 'partial')"
+        )).scalar()
+    to_dt = lambda v: pd.Timestamp(v).to_pydatetime() if v is not None else None  # noqa: E731 (SQLite gives text)
+    latest_dict = None if latest is None else {"status": latest["status"], "started_at": to_dt(latest["started_at"]),
+                                               "finished_at": to_dt(latest["finished_at"])}
+    return latest_dict, to_dt(last_ok)
+
+
 def _parse_json(value: Any) -> dict[str, float]:
     if isinstance(value, dict):
         return value
@@ -213,6 +229,42 @@ def cloud_stop_words(brands: pd.DataFrame) -> set[str]:
     return set(STOPWORDS) | CLOUD_STOP_WORDS | brand_stop_words(brands)
 
 
+@dataclass
+class CollectorStatus:
+    text: str  # "Updated 12 min ago"
+    warning: str | None = None  # "last cycle had errors" / "overdue" / None
+    running: bool = False
+    has_runs: bool = True
+
+
+def age_text(delta: timedelta) -> str:
+    minutes = int(delta.total_seconds() // 60)
+    if minutes < 1:
+        return "just now"
+    if minutes < 60:
+        return f"{minutes} min ago"
+    if minutes < 48 * 60:
+        return f"{minutes // 60} h ago"
+    return f"{minutes // (24 * 60)} days ago"
+
+
+def collector_status(latest: dict[str, Any] | None, last_ok: datetime | None, now: datetime,
+                     interval_hours: float) -> CollectorStatus:
+    """Header status from the collector_runs table: age of the last successful cycle, plus a
+    warning when the last cycle had errors or the data is older than 2 x the interval."""
+    if latest is None:
+        return CollectorStatus("No collector runs yet", has_runs=False)
+    running = latest["status"] == "running"
+    if last_ok is None:
+        return CollectorStatus("No successful cycle yet", warning=None if running else "last cycle failed", running=running)
+    status = CollectorStatus(f"Updated {age_text(now - last_ok)}", running=running)
+    if not running and latest["status"] in ("partial", "failed"):
+        status.warning = "last cycle had errors" if latest["status"] == "partial" else "last cycle failed"
+    elif now - last_ok > timedelta(hours=2 * interval_hours):
+        status.warning = "overdue — is the collector running?"
+    return status
+
+
 def previous_period(start: date, end: date) -> tuple[date, date]:
     """The period of the same length immediately before [start, end]."""
     length = (end - start).days + 1
@@ -261,3 +313,8 @@ def alerts(brand_id: int, start: date, end: date) -> pd.DataFrame:
 @st.cache_data(ttl=60, show_spinner=False)
 def feature_mentions(brand_ids: tuple[int, ...]) -> pd.DataFrame:
     return query_feature_mentions(get_engine(), brand_ids)
+
+
+@st.cache_data(ttl=30, show_spinner=False)
+def collector_runs() -> tuple[dict[str, Any] | None, datetime | None]:
+    return query_collector_runs(get_engine())

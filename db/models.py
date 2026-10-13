@@ -179,4 +179,23 @@ class FetchRun(Base):
     error: Mapped[Optional[str]] = mapped_column(Text)
 
 
+
+class CollectorRun(Base):
+    """One collector cycle: fetch -> NLP -> topics -> priority."""
+
+    __tablename__ = "collector_runs"
+    __table_args__ = (Index("ix_collector_runs_started", "started_at"),)
+
+    id: Mapped[int] = mapped_column(BigId, primary_key=True, autoincrement=True)
+    started_at: Mapped[datetime] = mapped_column(DateTime)
+    finished_at: Mapped[Optional[datetime]] = mapped_column(DateTime)
+    status: Mapped[str] = mapped_column(String(16), default="running")  # running / ok / partial / failed
+    new_mentions: Mapped[int] = mapped_column(Integer, default=0)
+    analysed: Mapped[int] = mapped_column(Integer, default=0)
+    analysis_failed: Mapped[int] = mapped_column(Integer, default=0)
+    topics: Mapped[int] = mapped_column(Integer, default=0)
+    alerts_created: Mapped[int] = mapped_column(Integer, default=0)
+    stage_seconds: Mapped[Optional[dict[str, float]]] = mapped_column(JSON)
+    error: Mapped[Optional[str]] = mapped_column(Text)
+
 TABLE_NAMES: tuple[str, ...] = tuple(Base.metadata.tables.keys())

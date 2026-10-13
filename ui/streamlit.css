@@ -142,6 +142,20 @@ h1, h2, h3, h4 { font-family: Montserrat, sans-serif; color: var(--ink); }
 .br-rank li { padding: 8px 12px !important; }
 .br-quote blockquote { border-left: 0 !important; padding: 0 !important; }
 
+/* ---------- Step 7: collector status + demo pill ---------- */
+.br-status { display: flex; align-items: center; flex-wrap: wrap; gap: 4px 6px; margin-top: 8px;
+  font-family: Figtree, sans-serif; font-size: 12px; color: var(--ink-soft); }
+.br-status-dot { width: 7px; height: 7px; border-radius: 50%; background: var(--pos); flex-shrink: 0; }
+.br-status-idle .br-status-dot { background: var(--neu); }
+.br-status-warn .br-status-dot { background: #E9B949; }
+.br-status-warn > .br-status-warn, span.br-status-warn { color: #9C6B12; background: rgba(233,185,73,.16);
+  border-radius: 999px; padding: 1px 8px; font-size: 11.5px; }
+.br-status-running { color: var(--berry); }
+.br-demo-pill { font-style: normal; font-family: Montserrat, sans-serif; font-size: 9.5px; font-weight: 700;
+  letter-spacing: .14em; text-transform: uppercase; color: var(--white); background: var(--berry);
+  border-radius: 999px; padding: 2px 8px; white-space: nowrap; }
+.br-demo-row { margin-top: 6px; }
+
 /* ---------- phone width: cards stack, KPIs 2 x 2 ---------- */
 @media (max-width: 640px) {
   .block-container { padding: .9rem .75rem 2.5rem; }

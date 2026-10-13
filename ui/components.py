@@ -167,6 +167,15 @@ def wordmark_html() -> str:
     return f'<div class="br-wordmark">{RADAR_ICON_SVG}<span>BRAND RADAR</span></div>'
 
 
+def status_html(text: str, warning: str | None, running: bool, has_runs: bool) -> str:
+    """The small collector status line under the wordmark."""
+    tone = "warn" if warning else ("idle" if not has_runs else "ok")
+    extra = ' <span class="br-status-running">· collecting…</span>' if running else ""
+    warn = f'<span class="br-status-warn">⚠ {html.escape(warning)}</span>' if warning else ""
+    return (f'<div class="br-status br-status-{tone}"><span class="br-status-dot"></span>'
+            f'<span>{html.escape(text)}</span>{extra}{warn}</div>')
+
+
 # ---------------------------------------------------------------- word clouds
 
 
