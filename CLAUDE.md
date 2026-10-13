@@ -44,6 +44,8 @@ python -m nlp.pipeline --download                                   # fetch the 
 python -m nlp.topics [--brand X]                                    # cluster complaints, rebuild topic_daily
 python -m nlp.priority [--as-of DATE] [--report]                    # priority snapshot + spike alerts
 python manage_brands.py --recheck-mentions [--apply]                # after changing excludes
+streamlit run app.py                                                # dashboard
+python tools/screenshot.py --url http://localhost:8501 --name stepN --motion   # 1440px + 390px captures
 ```
 
 ## Layout notes
@@ -70,7 +72,32 @@ python manage_brands.py --recheck-mentions [--apply]                # after chan
   Labels: KeyBERTInspired + MMR keyphrases, Title Case, unique per brand; `topics.category` holds the
   dominant category. Manual labels go in `topic_labels.yaml` (topic id -> label) and always win.
   Priority snapshot lives on `topics` (volume_7d, pain, trend, quadrant); max one spike alert per topic per ISO week.
+- Dashboard: `app.py` (layout) + `ui/data.py` (read-only cached queries, pure aggregations) +
+  `ui/components.py` (Plotly "blush" template, glass/KPI/empty-state helpers, background HTML).
+  Glass cards are `st.container(key="glass-…")`. Restart Streamlit after editing ui/*.py (modules are cached).
+  Set chart backgrounds explicitly in `show_chart` (Streamlit paints Plotly paper white otherwise).
+  AppTest can't rerun pages with dynamic multiselect options: set `session_state` before the first run.
 - Brand matching: `exclude` phrases are removed before matching; `exclude_if` words drop the mention.
 - This machine is an 8 GB M2: MPS memory is shared with the system. Keep zero-shot input short
   (`NLP_ZERO_SHOT_MAX_TOKENS`), batches small, and free MPS memory between batches.
   bart-large-mnli zero-shot is ~95% of the runtime (~1 s per mention).
+
+## Design system (use for all UI work)
+
+- Theme: "Blush glass", a light pink-and-white glassmorphism
+- Full CSS lives in ui/styles.css (approved theme; don't change its colours, fonts, blur values or animation timings; you may only add new classes)
+- Background: animated drifting blurred blobs in #F4A3B1, #E58A9A, #F3BAC1, #FFFFFF (as in the approved ui/styles.css) over a white-to-blush gradient, plus 16 rising translucent glass bubbles; respect prefers-reduced-motion
+- New CSS goes in ui/streamlit.css (loaded after styles.css); ui/styles.css itself stays byte-for-byte unchanged
+- Glass cards: rgba(255,255,255,0.52), blur(18px) saturate(150%), 1px white border, radius 20px, soft berry shadow
+- Text: #242424 primary, #6B5F62 secondary, #9C9899 labels
+- Brand colours: own brand #9E4A5A (berry), competitors #E79AA6, #B7AEB0, #F3BAC1
+- Sentiment: positive #6FA98A, neutral #B7AEB0, negative #D9536A
+- Emotions: joy #E9B949, anger #D9536A, sadness #7FA7D9, fear #A78BC9, disgust #8FB26B, surprise #E79AA6, neutral #B7AEB0
+- Fonts: Montserrat (headings, numbers), Figtree (text), from Google Fonts
+- Plotly: transparent backgrounds, #E7CFCF gridlines, Figtree font, these colours
+
+### Moving background (must match the approved theme exactly)
+
+- Inject it once in app.py with st.markdown(unsafe_allow_html=True): the .br-sky wrapper, the 4 .br-blob clouds and 16 .br-bubble bubbles
+- st.markdown does not run JavaScript, so generate the 16 bubbles in Python with inline styles: width/height 18–88px, left 0–96vw, --sway ±20–80px, animation-duration 12–26s, negative animation-delay. Use a fixed random seed so they don't jump on every rerun
+- Keep it behind all content (z-index) with pointer-events: none so it never blocks clicks

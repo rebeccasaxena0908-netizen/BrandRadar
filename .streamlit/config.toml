@@ -1,0 +1,19 @@
+# Blush glass base theme so Streamlit's own widgets (date picker, checkboxes, focus rings) use berry.
+[theme]
+base = "light"
+primaryColor = "#9E4A5A"
+backgroundColor = "#FFFFFF"
+secondaryBackgroundColor = "#F2E0E0"
+textColor = "#242424"
+font = "sans serif"
+
+[client]
+toolbarMode = "minimal"
+showSidebarNavigation = false
+
+[browser]
+gatherUsageStats = false
+
+[server]
+headless = true
+runOnSave = false

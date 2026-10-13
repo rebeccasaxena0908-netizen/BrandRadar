@@ -1,0 +1,47 @@
+/* Brand Radar · Blush glass theme */
+:root {
+  --white:#FFFFFF; --blush:#F0DCDB; --petal:#F2E0E0; --rule:#E7CFCF;
+  --rose:#F3BAC1; --rose-deep:#E79AA6; --berry:#9E4A5A; --ink:#242424;
+  --ink-soft:#6B5F62; --muted:#9C9899;
+  --pos:#6FA98A; --neu:#B7AEB0; --neg:#D9536A;
+}
+.stApp { background: linear-gradient(160deg,#FFFFFF 0%,#FBF3F3 50%,#F2E0E0 100%); color: var(--ink); }
+#MainMenu, header[data-testid="stHeader"], footer { visibility: hidden; }
+
+/* Moving background: 4 drifting colour clouds + rising glass bubbles.
+   Inject once: <div class="br-sky"><div class="br-blob br-b1"></div>...<span class="br-bubble"></span>x16</div>
+   Give each bubble its own size, left, --sway, animation-duration (12-26s) and negative delay. */
+.br-sky { position: fixed; inset: 0; z-index: 0; overflow: hidden; pointer-events: none; }
+.br-blob { position: absolute; border-radius: 50%; filter: blur(48px); }
+.br-b1 { width:46vmax; height:46vmax; left:-10vmax; top:-12vmax; opacity:.9; background: radial-gradient(circle, #F4A3B1 0%, rgba(244,163,177,.5) 35%, transparent 68%); animation: br1 11s ease-in-out infinite alternate; }
+.br-b2 { width:40vmax; height:40vmax; right:-10vmax; top:6vh; opacity:.75; background: radial-gradient(circle, #E58A9A 0%, rgba(229,138,154,.45) 35%, transparent 66%); animation: br2 13s ease-in-out infinite alternate; }
+.br-b3 { width:34vmax; height:34vmax; left:26vw; bottom:-14vmax; opacity:.9; background: radial-gradient(circle, #F3BAC1 0%, rgba(243,186,193,.5) 40%, transparent 70%); animation: br3 9s ease-in-out infinite alternate; }
+.br-b4 { width:30vmax; height:30vmax; right:14vw; bottom:-6vmax; background: radial-gradient(circle, #FFFFFF 0%, rgba(255,255,255,.6) 40%, transparent 70%); animation: br4 12s ease-in-out infinite alternate; }
+@keyframes br1 { to { transform: translate(34vw,30vh) scale(1.25); } }
+@keyframes br2 { to { transform: translate(-38vw,36vh) scale(.8); } }
+@keyframes br3 { to { transform: translate(-30vw,-46vh) scale(1.3); } }
+@keyframes br4 { to { transform: translate(-36vw,-40vh) scale(1.35); } }
+.br-bubble { position: absolute; bottom: -12vh; border-radius: 50%; border: 1px solid rgba(255,255,255,.85);
+  background: radial-gradient(circle at 32% 28%, rgba(255,255,255,.95) 0%, rgba(255,255,255,.35) 22%, rgba(243,186,193,.28) 60%, rgba(231,154,166,.18) 100%);
+  box-shadow: inset -4px -6px 12px rgba(158,74,90,.12), 0 4px 14px rgba(158,74,90,.10); animation: brrise linear infinite; }
+@keyframes brrise { 0% { transform: translate(0,0) scale(.9); opacity:0; } 10% { opacity:1; } 50% { transform: translate(var(--sway),-60vh) scale(1); } 90% { opacity:1; } 100% { transform: translate(0,-125vh) scale(1.05); opacity:0; } }
+@media (prefers-reduced-motion: reduce) { .br-blob, .br-bubble { animation-play-state: paused; } }
+.block-container { position: relative; z-index: 1; }
+
+.glass {
+  background: rgba(255,255,255,.52);
+  -webkit-backdrop-filter: blur(18px) saturate(150%);
+  backdrop-filter: blur(18px) saturate(150%);
+  border: 1px solid rgba(255,255,255,.8);
+  border-radius: 20px;
+  box-shadow: 0 10px 34px rgba(158,74,90,.14), inset 0 1px 0 rgba(255,255,255,.9);
+  padding: 18px 20px;
+}
+.glass:hover { transform: translateY(-3px); transition: transform .25s ease; }
+.br-label { font-family: Montserrat, sans-serif; font-size: 10.5px; font-weight: 700; letter-spacing: .16em; text-transform: uppercase; color: var(--muted); }
+.br-big { font-family: Montserrat, sans-serif; font-weight: 700; font-size: 34px; font-variant-numeric: tabular-nums; }
+.br-alert-dot { width:9px; height:9px; border-radius:50%; background: var(--neg); animation: brpulse 2s infinite; display:inline-block; }
+@keyframes brpulse { 70% { box-shadow: 0 0 0 9px rgba(217,83,106,0); } 0% { box-shadow: 0 0 0 0 rgba(217,83,106,.5); } }
+
+/* Fonts: Montserrat (headings, numbers) + Figtree (text) from Google Fonts */
+html, body, [class*="css"] { font-family: Figtree, system-ui, sans-serif; }

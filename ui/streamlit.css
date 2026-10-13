@@ -1,0 +1,98 @@
+/* Brand Radar · Streamlit additions to the approved Blush glass theme.
+   New classes / Streamlit hooks only. ui/styles.css is never edited; values below reuse its
+   variables and copy .glass exactly so st.container(key="glass-…") cards look identical. */
+
+/* ---------- page frame ---------- */
+.block-container { padding-top: 1.4rem; padding-bottom: 3rem; max-width: 1320px; }
+[data-testid="stToolbar"], [data-testid="stDecoration"], [data-testid="stStatusWidget"] { display: none; }
+[data-testid="stAppViewContainer"], [data-testid="stMain"] { background: transparent; }
+h1, h2, h3, h4 { font-family: Montserrat, sans-serif; color: var(--ink); }
+
+/* ---------- moving background ---------- */
+/* Streamlit renders the injected sky inside .block-container, which the theme makes a stacking
+   context (z-index: 1). This wrapper sits at -1 inside it: behind every card, above the gradient. */
+.br-sky-layer { position: fixed; inset: 0; z-index: -1; pointer-events: none; }
+/* take the injected <style> and sky out of the page flow so they don't add a gap at the top */
+[data-testid="stElementContainer"]:has(.br-sky-layer),
+[data-testid="stElementContainer"]:has(> [data-testid="stMarkdown"] style) { position: absolute; height: 0; margin: 0; }
+
+/* ---------- glass containers: st.container(key="glass-…") ---------- */
+[class*="st-key-glass-"] {
+  background: rgba(255,255,255,.52);
+  -webkit-backdrop-filter: blur(18px) saturate(150%);
+  backdrop-filter: blur(18px) saturate(150%);
+  border: 1px solid rgba(255,255,255,.8);
+  border-radius: 20px;
+  box-shadow: 0 10px 34px rgba(158,74,90,.14), inset 0 1px 0 rgba(255,255,255,.9);
+  padding: 18px 20px;
+}
+[class*="st-key-glass-"] [data-testid="stPlotlyChart"],
+[class*="st-key-glass-"] [data-testid="stImage"] { background: transparent; }
+/* Streamlit sizes elements to the block's full width, ignoring the card padding: keep them inside */
+[class*="st-key-glass-"] [data-testid="stElementContainer"],
+[class*="st-key-glass-"] [data-testid="stMarkdown"],
+[class*="st-key-glass-"] [data-testid="stMarkdownContainer"] { width: 100% !important; max-width: 100%; }
+[class*="st-key-glass-"] [data-testid="stImage"] img { max-width: 100% !important; height: auto !important; }
+
+/* ---------- header bar ---------- */
+.st-key-glass-header { padding: 14px 22px 16px; }
+.br-wordmark { display: flex; align-items: center; gap: 10px; padding: 22px 0 4px; min-height: 40px; }
+.br-wordmark svg { flex-shrink: 0; }
+.br-wordmark span { font-family: Montserrat, sans-serif; font-weight: 800; font-size: 16px;
+  letter-spacing: .28em; color: var(--berry); white-space: nowrap; }
+.br-subtitle { font-family: Figtree, sans-serif; font-size: 12px; color: var(--muted); margin-top: -2px; }
+
+/* widget labels in the theme's label style */
+[data-testid="stWidgetLabel"] p { font-family: Montserrat, sans-serif; font-size: 10.5px !important; font-weight: 700;
+  letter-spacing: .16em; text-transform: uppercase; color: var(--muted); }
+[data-baseweb="select"] > div, [data-baseweb="input"], [data-testid="stDateInput"] [data-baseweb="input"] {
+  background: rgba(255,255,255,.72); border: 1px solid var(--rule); border-radius: 12px; }
+[data-baseweb="select"] > div:hover, [data-baseweb="input"]:hover { border-color: var(--rose-deep); }
+[data-baseweb="tag"] { background: var(--rose) !important; border-radius: 999px !important;
+  height: 26px !important; margin: 3px 6px 3px 0 !important; padding-left: 10px !important; padding-right: 6px !important; }
+[data-baseweb="tag"] span { color: var(--ink) !important; font-weight: 500; font-size: 13px; }
+[data-testid="stPills"] button, [data-testid="stSegmentedControl"] button {
+  background: rgba(255,255,255,.66); border: 1px solid var(--rule); color: var(--ink-soft); border-radius: 999px; }
+[data-testid="stPills"] button[kind$="Active"], [data-testid="stSegmentedControl"] button[kind$="Active"] {
+  background: var(--berry); border-color: var(--berry); color: var(--white); }
+
+/* ---------- KPI cards ---------- */
+/* margin-bottom offsets Streamlit's -1rem on markdown blocks, so KPI cards don't touch what follows */
+.br-kpi { min-height: 136px; display: flex; flex-direction: column; gap: 6px; margin-bottom: 1rem; }
+.br-kpi-value { display: flex; align-items: center; gap: 10px; min-height: 44px; }
+.br-kpi-value .br-emotion-dot { width: 12px; height: 12px; border-radius: 50%; display: inline-block; }
+.br-kpi-detail { font-family: Figtree, sans-serif; font-size: 12.5px; color: var(--ink-soft); line-height: 1.35; }
+.br-delta { font-weight: 600; }
+.br-delta-good { color: var(--pos); }
+.br-delta-bad { color: var(--neg); }
+.br-delta-flat, .br-delta-none { color: var(--ink-soft); }
+.br-delta-rest { color: var(--muted); }
+.br-all-clear { font-family: Montserrat, sans-serif; font-weight: 600; color: var(--pos); font-size: 13px; }
+
+/* ---------- card titles ---------- */
+.br-card-head { margin-bottom: 4px; }
+.br-card-title { font-family: Montserrat, sans-serif; font-weight: 700; font-size: 15px; color: var(--ink); letter-spacing: .01em; }
+.br-card-caption { font-family: Figtree, sans-serif; font-size: 12.5px; color: var(--ink-soft); margin-top: 2px; }
+
+/* ---------- empty state ---------- */
+.br-empty { box-sizing: border-box; width: 100%; display: flex; flex-direction: column; align-items: center; justify-content: center; text-align: center;
+  gap: 8px; padding: 24px; border: 1px dashed var(--rose-deep); border-radius: 16px; background: rgba(255,255,255,.35); }
+.br-empty-icon { width: 44px; height: 44px; border-radius: 50%; display: flex; align-items: center; justify-content: center;
+  background: rgba(243,186,193,.35); }
+.br-empty-title { font-family: Montserrat, sans-serif; font-weight: 700; font-size: 14px; color: var(--ink); }
+.br-empty-text { font-family: Figtree, sans-serif; font-size: 12.5px; color: var(--ink-soft); max-width: 340px; }
+
+.br-footnote { font-family: Figtree, sans-serif; font-size: 12px; color: var(--muted); text-align: center; margin-top: 8px; }
+
+/* ---------- phone width: cards stack, KPIs 2 x 2 ---------- */
+@media (max-width: 640px) {
+  .block-container { padding: .9rem .75rem 2.5rem; }
+  [class*="st-key-glass-"] { padding: 14px 14px; border-radius: 18px; }
+  .st-key-kpis [data-testid="stHorizontalBlock"] { flex-wrap: wrap; gap: 10px; }
+  .st-key-kpis [data-testid="stColumn"] { flex: 1 1 calc(50% - 10px) !important; min-width: calc(50% - 10px) !important; width: calc(50% - 10px) !important; }
+  .br-kpi { min-height: 124px; padding: 14px 14px; }
+  .br-kpi .br-big { font-size: 26px; }
+  .br-wordmark { padding-top: 0; }
+  .br-wordmark span { font-size: 15px; letter-spacing: .26em; }
+  .br-kpi { margin-bottom: calc(1rem - 10px); }
+}
