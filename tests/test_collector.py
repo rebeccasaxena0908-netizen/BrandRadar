@@ -159,6 +159,10 @@ def test_lock_refuses_a_second_holder(tmp_path: Path) -> None:
                 pass
     with collector_lock(path):  # released on exit
         pass
+    for _ in range(3):  # repeated runs keep a single pid in the file, not a growing list
+        with collector_lock(path):
+            pass
+    assert path.read_text().split() == [path.read_text().split()[0]] and path.read_text().strip().isdigit()
 
 
 def test_second_collector_exits_cleanly(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -247,6 +251,7 @@ def test_stop_between_stages_marks_cycle_interrupted(factory: sessionmaker[Sessi
     assert runs(factory)[0].status == "failed" and runs(factory)[0].finished_at is not None
 
 
+@pytest.mark.skipif(__import__("sys").platform == "win32", reason="POSIX signal delivery")
 def test_sigterm_and_ignored_sigint_both_become_keyboard_interrupt() -> None:
     import os
     import signal

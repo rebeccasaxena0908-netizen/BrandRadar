@@ -367,8 +367,9 @@ def main(argv: list[str] | None = None) -> int:
         rebuild_database(server, demo_db)
     except Exception as exc:  # noqa: BLE001
         print(f"✘ could not (re)create {demo_db}: {exc}\n"
-              f"  Grant the radar user access once, with XAMPP's client:\n"
-              f"  /Applications/XAMPP/xamppfiles/bin/mysql -u root -e "
+              f"  Grant the radar user access once, with XAMPP's mysql client\n"
+              f"  (macOS: /Applications/XAMPP/xamppfiles/bin/mysql, Windows: C:\\xampp\\mysql\\bin\\mysql.exe):\n"
+              f"  mysql -u root -e "
               f"\"GRANT ALL PRIVILEGES ON {demo_db}.* TO 'radar'@'localhost', 'radar'@'127.0.0.1'\"")
         return 1
     engine = create_engine(server.replace("/?charset", f"/{demo_db}?charset"), future=True)

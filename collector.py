@@ -12,7 +12,6 @@ Only one cycle runs at a time: APScheduler max_instances=1 plus a lock file acro
 from __future__ import annotations
 
 import argparse
-import fcntl
 import gc
 import logging
 import multiprocessing
@@ -53,20 +52,39 @@ class AlreadyRunning(RuntimeError):
     pass
 
 
+def _try_lock(handle: Any) -> None:
+    """Exclusive, non-blocking lock on an open file; raises BlockingIOError if already held.
+    flock on macOS/Linux, msvcrt on Windows (fcntl does not exist there). Both are released by the OS
+    when the process exits, even if it crashes."""
+    if sys.platform == "win32":
+        import msvcrt
+
+        # Windows locks are mandatory: lock a byte well past the pid text so others can still read it
+        handle.seek(1024)
+        try:
+            msvcrt.locking(handle.fileno(), msvcrt.LK_NBLCK, 1)
+        except OSError as exc:
+            raise BlockingIOError(str(exc)) from exc
+    else:
+        import fcntl
+
+        fcntl.flock(handle, fcntl.LOCK_EX | fcntl.LOCK_NB)
+
+
 @contextmanager
 def collector_lock(path: Path | None = None) -> Iterator[None]:
-    """Exclusive, non-blocking OS lock; released automatically if the process dies."""
-    handle = open(path or LOCK_FILE, "a+")
+    """Exclusive, non-blocking OS lock across processes; released automatically if the process dies."""
+    # read/write without append mode (appends ignore seek), creating the file if needed
+    handle = os.fdopen(os.open(path or LOCK_FILE, os.O_RDWR | os.O_CREAT, 0o644), "r+")
     try:
         try:
-            fcntl.flock(handle, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            _try_lock(handle)
         except BlockingIOError:
             handle.seek(0)
             pid = handle.read().strip() or "?"
             raise AlreadyRunning(f"another collector is already running (pid {pid})") from None
         handle.seek(0)
-        handle.truncate()
-        handle.write(str(os.getpid()))
+        handle.write(str(os.getpid()).ljust(20))  # fixed width, no truncate (not allowed past a Windows lock)
         handle.flush()
         yield
     finally:

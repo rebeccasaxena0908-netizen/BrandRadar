@@ -60,53 +60,68 @@ external API or loads a model, so it stays fast and light.
 
 ## Setup
 
-**1. Install XAMPP and start MySQL** (apachefriends.org). The MySQL client is at
-`/Applications/XAMPP/xamppfiles/bin/mysql` on macOS.
+Works on macOS and Windows (Linux too). You need **Python 3.11** and **XAMPP**.
 
-**2. Python environment**
+**1. Install XAMPP** from [apachefriends.org](https://www.apachefriends.org) and start **MySQL** in the
+XAMPP Control Panel. XAMPP's MySQL client is here (its `root` user has no password by default):
 
-```bash
-python3.11 -m venv venv
-source venv/bin/activate
-pip install -r requirements.txt
-```
+| macOS | Windows |
+|---|---|
+| `/Applications/XAMPP/xamppfiles/bin/mysql` | `C:\xampp\mysql\bin\mysql.exe` |
 
-**3. Database and a dedicated user** (run as root with XAMPP's client; choose your own password):
+**2. Get the code and create a Python environment**
 
 ```bash
-MYSQL=/Applications/XAMPP/xamppfiles/bin/mysql
-$MYSQL -u root < db/schema.sql
-$MYSQL -u root -e "
-  CREATE USER 'radar'@'localhost' IDENTIFIED BY 'choose-a-password';
-  CREATE USER 'radar'@'127.0.0.1' IDENTIFIED BY 'choose-a-password';
-  GRANT ALL PRIVILEGES ON brand_radar.*      TO 'radar'@'localhost', 'radar'@'127.0.0.1';
-  GRANT ALL PRIVILEGES ON brand_radar_demo.* TO 'radar'@'localhost', 'radar'@'127.0.0.1';"
+git clone <this repository> BrandRadar
+cd BrandRadar
 ```
 
-**4. Configuration**: copy `.env.example` to `.env` and set `DB_PASSWORD`. Every setting (intervals,
-thresholds, sources) lives in `.env`; secrets never go in code, and `.env` is git-ignored.
+| macOS / Linux | Windows (PowerShell) |
+|---|---|
+| `python3.11 -m venv venv` | `py -3.11 -m venv venv` |
+| `source venv/bin/activate` | `venv\Scripts\Activate.ps1` |
+| `pip install -r requirements.txt` | `pip install -r requirements.txt` |
+
+**3. Create the database and a dedicated user.** Run these from the project folder with XAMPP's client
+(replace `mysql` with the full path above if it is not on your PATH, and choose your own password).
+`source` works the same in Terminal, PowerShell and cmd:
+
+```bash
+mysql -u root -e "source db/schema.sql"
+mysql -u root -e "CREATE USER 'radar'@'localhost' IDENTIFIED BY 'choose-a-password'; CREATE USER 'radar'@'127.0.0.1' IDENTIFIED BY 'choose-a-password'; GRANT ALL PRIVILEGES ON brand_radar.* TO 'radar'@'localhost', 'radar'@'127.0.0.1'; GRANT ALL PRIVILEGES ON brand_radar_demo.* TO 'radar'@'localhost', 'radar'@'127.0.0.1';"
+```
+
+**4. Configuration:** copy `.env.example` to `.env` (`cp` on macOS, `copy` on Windows) and set
+`DB_PASSWORD` to the password you chose. Every setting (intervals, thresholds, sources) lives in `.env`;
+secrets never go in code, and `.env` is git-ignored.
 
 **5. Brands, models, first data**
 
 ```bash
 python manage_brands.py            # brands.yaml -> brands table
 python -m nlp.pipeline --download  # ~2.5 GB of models into the Hugging Face cache (once)
-python collector.py --once         # first fetch + analysis (~15 min the first time on an 8 GB M2)
+python collector.py --once         # first fetch + analysis
 python check_setup.py              # checks Python, packages, models, database, collector, demo data
 ```
 
+The first analysis takes about 15 minutes on an 8 GB Apple Silicon Mac (GPU via MPS). On Windows the models
+run on the CPU (or an NVIDIA GPU if PyTorch sees one), so expect it to take longer.
+
 ## Running it
 
-| What | Command |
-|---|---|
-| Collector + dashboard together (Ctrl+C stops both) | `scripts/start.sh` |
-| Collector only, every `COLLECTOR_INTERVAL_HOURS` (default 6) | `python collector.py` |
-| One collector cycle | `python collector.py --once` |
-| Dashboard only | `streamlit run app.py` |
-| Build the demo database | `python seed_demo.py` |
-| Dashboard on demo data | `BRAND_RADAR_DEMO=1 streamlit run app.py` |
-| Import a CSV (`source, author, text, date, rating`) | `python fetch.py --csv file.csv --brand Notion` |
-| Tests | `python -m pytest -q` |
+| What | macOS / Linux | Windows (PowerShell) |
+|---|---|---|
+| Collector + dashboard together (Ctrl+C stops both) | `scripts/start.sh` | run the next two lines in two terminals |
+| Collector, every `COLLECTOR_INTERVAL_HOURS` (default 6) | `python collector.py` | `python collector.py` |
+| Dashboard | `streamlit run app.py` | `streamlit run app.py` |
+| One collector cycle | `python collector.py --once` | `python collector.py --once` |
+| Build the demo database | `python seed_demo.py` | `python seed_demo.py` |
+| Dashboard on demo data | `BRAND_RADAR_DEMO=1 streamlit run app.py` | `$env:BRAND_RADAR_DEMO=1; streamlit run app.py` |
+| Import a CSV (`source, author, text, date, rating`) | `python fetch.py --csv file.csv --brand Notion` | same |
+| Tests | `python -m pytest -q` | same |
+
+The dashboard opens at <http://localhost:8501>. In PowerShell, `$env:BRAND_RADAR_DEMO` stays set for that
+terminal; close it (or run `Remove-Item Env:BRAND_RADAR_DEMO`) before going back to real data.
 
 Only one collector runs at a time (a lock file plus APScheduler `max_instances=1`); a second one exits
 with a message. If a stage fails, the error is logged to `collector_runs` and the later stages still run.
@@ -168,3 +183,7 @@ docs/               ui-decisions.md, screenshots/
 Design decisions for the dashboard, with screenshots of each step, are in
 **[docs/ui-decisions.md](docs/ui-decisions.md)**. The step-by-step build plan is in
 [brand_radar_roadmap.md](brand_radar_roadmap.md).
+
+## License
+
+[MIT](LICENSE) © 2026 Rebecca Saxena
