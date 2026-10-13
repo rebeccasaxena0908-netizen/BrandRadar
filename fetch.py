@@ -15,19 +15,22 @@ from collections.abc import Callable, Iterable, Sequence
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 
-from sqlalchemy import insert, select
+from sqlalchemy import insert, select, update
 from sqlalchemy.orm import Session, sessionmaker
 
 from config import settings
 from db.models import Brand, FetchRun, Mention
 from sources.appstore import AppStoreSource
-from sources.base import BrandSpec, RawMention, Source, clip, utc_now
-from sources.csv_import import CsvSource
+from nlp.language import detect_language
+from sources.base import BrandSpec, RawMention, Source, brand_sources, clip, utc_now
+from sources.csv_import import CsvSource, parse_mapping
 from sources.devto import DevtoSource
 from sources.hackernews import HackerNewsSource
 from sources.mastodon import MastodonSource
+from sources.news import NewsSource
 from sources.playstore import PlayStoreSource
 from sources.reddit import RedditSource
+from sources.youtube import YouTubeSource
 
 log = logging.getLogger("fetch")
 
@@ -38,7 +41,12 @@ SOURCE_FACTORIES: dict[str, Callable[[], Source]] = {
     "reddit": RedditSource,
     "devto": DevtoSource,
     "mastodon": MastodonSource,
+    "youtube": YouTubeSource,
+    "news": NewsSource,
 }
+# Sources whose terms limit how long data may be kept without refreshing it: a mention seen again gets
+# a new fetched_at (YouTube: 30 days, see sources/youtube.purge_expired).
+REFRESHED_SOURCES = ("youtube",)
 LOOKUP_CHUNK = 500
 MAX_ERROR_LENGTH = 10_000
 
@@ -94,6 +102,7 @@ def insert_new_mentions(session: Session, brand_id: int, mentions: Iterable[RawM
             "rating": m.rating,
             "created_at": m.created_at,
             "fetched_at": utc_now(),
+            "language": detect_language(m.text),
         }
         for (source, external_id), m in unique.items()
         if (source, external_id) not in existing
@@ -101,7 +110,27 @@ def insert_new_mentions(session: Session, brand_id: int, mentions: Iterable[RawM
     if new_rows:
         # IGNORE guards against a concurrent run inserting the same rows in between.
         session.execute(insert(Mention).prefix_with("IGNORE", dialect="mysql"), new_rows)
+    for source in REFRESHED_SOURCES:
+        seen = [e for s, e in existing if s == source]
+        for start in range(0, len(seen), LOOKUP_CHUNK):
+            session.execute(
+                update(Mention)
+                .where(Mention.brand_id == brand_id, Mention.source == source,
+                       Mention.external_id.in_(seen[start : start + LOOKUP_CHUNK]))
+                .values(fetched_at=utc_now())
+            )
     return len(new_rows)
+
+
+def purge_expired_data(factory: sessionmaker[Session]) -> None:
+    """Delete data whose source terms say it may not be kept unrefreshed (YouTube: 30 days)."""
+    from sources.youtube import purge_expired
+
+    with factory() as session:
+        mentions, videos = purge_expired(session)
+        session.commit()
+    if mentions or videos:
+        log.info("youtube: deleted %d mentions and %d videos not refreshed for 30 days", mentions, videos)
 
 
 def load_brands(factory: sessionmaker[Session], names: Sequence[str] | None = None) -> list[BrandSpec]:
@@ -166,14 +195,20 @@ def run_fetch(
     brands: Sequence[BrandSpec],
     sources: Sequence[Source],
     since: datetime,
+    per_brand_sources: bool = True,
 ) -> list[RunResult]:
+    """Run every source for every brand. With per_brand_sources, a brand only gets the sources in its
+    `sources:` list (else its profile's defaults); a source asked for explicitly on the CLI runs for all."""
     results: list[RunResult] = []
     for source in sources:
+        wanted = [b for b in brands if not per_brand_sources or source.name in brand_sources(b)]
+        if not wanted:
+            continue
         if not source.enabled:
             log.info("%s: skipped (not configured)", source.name)
-            results.extend(RunResult(source.name, b.name, skipped=True) for b in brands)
+            results.extend(RunResult(source.name, b.name, skipped=True) for b in wanted)
             continue
-        for brand in brands:
+        for brand in wanted:
             results.append(run_one(factory, source, brand, since))
     return results
 
@@ -222,6 +257,11 @@ def parse_args(argv: Sequence[str] | None) -> argparse.Namespace:
         help=f"only fetch mentions newer than this many days (default {settings.fetch_since_days})",
     )
     parser.add_argument("--csv", metavar="FILE", help="import a CSV file for exactly one --brand")
+    parser.add_argument("--map", metavar="SPEC", help='with --csv: column mapping, e.g. "text=Review Body,date=Posted On"')
+    parser.add_argument("--date-order", choices=("dmy", "mdy"), default="dmy",
+                        help="with --csv: 01/10/2026 is 1 Oct (dmy, default) or 10 Jan (mdy, US exports)")
+    parser.add_argument("--csv-source", default="csv", metavar="NAME",
+                        help="with --csv: source name for rows without a source column (e.g. amazon)")
     parser.add_argument("-q", "--quiet", action="store_true", help="only print the summary")
     args = parser.parse_args(argv)
     if args.csv and (not args.brand or len(args.brand) != 1):
@@ -248,13 +288,19 @@ def main(argv: Sequence[str] | None = None) -> int:
 
     sources: list[Source]
     if args.csv:
-        sources = [CsvSource(args.csv)]
+        try:
+            sources = [CsvSource(args.csv, mapping=parse_mapping(args.map), date_order=args.date_order,
+                                 default_source=args.csv_source)]
+        except ValueError as exc:
+            raise SystemExit(f"fetch.py: {exc}") from None
     else:
         names = args.source or list(SOURCE_FACTORIES)
         sources = [SOURCE_FACTORIES[n]() for n in names]
 
+    purge_expired_data(factory)
     since = utc_now() - timedelta(days=args.since_days)
-    results = run_fetch(factory, brands, sources, since)
+    # an explicit --source or --csv runs for every chosen brand; otherwise each brand gets its own sources
+    results = run_fetch(factory, brands, sources, since, per_brand_sources=not (args.csv or args.source))
     print_summary(results)
     return 1 if any(r.error for r in results) else 0
 

@@ -15,9 +15,11 @@ from sqlalchemy.orm import Session, sessionmaker
 from db.models import Analysis, Brand, Mention, Topic, TopicDaily
 from nlp.topics import (
     Cluster, Complaint, assign_labels, dominant_category, effective_min_size, frequent_keywords, is_complaint,
-    keyphrase_candidates, load_label_overrides, looks_english, match_clusters, run_topics, stop_words_for,
+    keyphrase_candidates, load_complaints, load_label_overrides, looks_english, match_clusters, run_topics,
+    stop_words_for,
     title_case,
 )
+from nlp.profiles import get_profile
 from sources.base import BrandSpec
 
 GROUPS = {
@@ -86,6 +88,25 @@ def test_is_complaint() -> None:
     assert is_complaint("positive", "bug")
     assert not is_complaint("positive", "praise")
     assert not is_complaint("neutral", "general discussion")
+
+
+def test_complaints_follow_the_brands_profile(factory: sessionmaker[Session], brands: list[BrandSpec]) -> None:
+    beauty = get_profile("beauty_skincare")
+    assert is_complaint("neutral", "texture", beauty) and is_complaint("negative", "praise", beauty)
+    assert not is_complaint("positive", "scent", beauty)  # "smells lovely" is about scent, not a complaint
+    assert not is_complaint("neutral", "bug", beauty)  # a software label means nothing here
+
+    texts = [("too sticky", "neutral", "texture"), ("smells lovely", "positive", "scent"),
+             ("broke me out", "negative", "skin reaction"), ("nice", "positive", "praise")]
+    with factory() as s:
+        for i, (t, sent, cat) in enumerate(texts):
+            m = Mention(brand_id=brands[1].id, source="youtube", external_id=f"b{i}", text=t, created_at=datetime(2026, 10, 1))
+            s.add(m)
+            s.flush()
+            s.add(Analysis(mention_id=m.id, sentiment=sent, category=cat, model_version="x"))
+        s.commit()
+        found = {c.text for c in load_complaints(s, brands[1].id, (), beauty)}
+    assert found == {"too sticky", "broke me out"}
 
 
 def test_looks_english() -> None:

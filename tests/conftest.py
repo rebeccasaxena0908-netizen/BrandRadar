@@ -27,9 +27,9 @@ def brands(factory: sessionmaker[Session]) -> list[BrandSpec]:
     with factory() as session:
         rows = [
             Brand(name="Notion", is_own=True, keywords=["Notion", "notion.so", "-Notion Ink"],
-                  app_store_id="1232780281", play_store_id="notion.id", features=["sync"]),
+                  app_store_id="1232780281", play_store_id="notion.id", features=["sync"], brand_group="Note apps", profile="software"),
             Brand(name="Obsidian", is_own=False, keywords=["Obsidian", "-Obsidian Entertainment"],
-                  app_store_id="1557175442", play_store_id="md.obsidian", features=["sync"]),
+                  app_store_id="1557175442", play_store_id="md.obsidian", features=["sync"], brand_group="Note apps", profile="software"),
         ]
         session.add_all(rows)
         session.commit()

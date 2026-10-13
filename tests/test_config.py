@@ -13,6 +13,8 @@ ENV_VARS = (
     "TOPIC_MIN_COMPLAINTS", "TOPIC_MIN_SIZE", "TOPIC_OUTLIER_SIMILARITY", "TOPIC_EXCLUDED_SOURCES",
     "PRIORITY_VOLUME_THRESHOLD", "PRIORITY_PAIN_THRESHOLD", "PRIORITY_PRAISE_PAIN_MAX",
     "MASTODON_INSTANCES", "REDDIT_CLIENT_ID", "REDDIT_CLIENT_SECRET", "REDDIT_USER_AGENT",
+    "YOUTUBE_API_KEY", "YOUTUBE_SEARCH_BUDGET", "YOUTUBE_UNIT_BUDGET", "YOUTUBE_MAX_VIDEOS", "YOUTUBE_COMMENT_PAGES",
+    "NEWS_MIN_INTERVAL",
 )
 
 
@@ -35,7 +37,9 @@ def test_defaults(clean_env: pytest.MonkeyPatch) -> None:
     assert s.reddit_enabled is False
     assert s.appstore_countries == ("us", "in", "gb", "ca", "au")
     assert s.mastodon_instances == ("mastodon.social", "fosstodon.org", "hachyderm.io")
-    assert s.topic_excluded_sources == ("devto",)
+    assert s.topic_excluded_sources == ("devto", "news")
+    assert s.youtube_enabled is False and s.youtube_search_budget == 80 and s.youtube_unit_budget == 8000
+    assert s.news_min_interval == 6.0
     assert s.max_items_per_source == 500
     assert s.nlp_device == "auto"
     assert s.feature_threshold == 0.5

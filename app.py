@@ -16,6 +16,7 @@ import streamlit as st
 from config import settings
 from nlp.models import EMOTIONS
 from nlp.priority import FIX_NOW, IGNORE, MONITOR, QUICK_WINS
+from nlp.profiles import SOFTWARE, get_profile
 from ui import data, insights
 from ui.components import (
     BERRY, COMPLAINT_CLOUD_COLOURS, EMOTION_COLOURS, INK, PRAISE_CLOUD_COLOURS, SENTIMENT_COLOURS,
@@ -38,9 +39,15 @@ st.markdown(background_html(), unsafe_allow_html=True)
 # ---------------------------------------------------------------- header + filters
 
 
-def header(brands: pd.DataFrame) -> tuple[pd.Series, list[pd.Series], date, date, tuple[str, ...]]:
-    names = brands["name"].tolist()
-    own_index = int(brands["is_own"].astype(bool).idxmax()) if brands["is_own"].any() else 0
+def reset_group_choices() -> None:
+    """A new group has other brands and sources: let those widgets start from their defaults."""
+    for key in ("brand", "sources"):
+        st.session_state.pop(key, None)
+
+
+def header(all_brands: pd.DataFrame) -> tuple[pd.DataFrame, pd.Series, list[pd.Series], date, date, tuple[str, ...]]:
+    """Group, brand, competitors, dates and sources. Everything below stays within the chosen group."""
+    groups = list(dict.fromkeys(all_brands["brand_group"]))
     today = date.today()
     with glass_card("header"):
         logo, brand_col, comp_col, date_col, source_col = st.columns(
@@ -52,13 +59,22 @@ def header(brands: pd.DataFrame) -> tuple[pd.Series, list[pd.Series], date, date
             st.markdown(wordmark_html() + f'<div class="br-subtitle">Sentiment &amp; competitor radar</div>{demo}',
                         unsafe_allow_html=True)
             live_status()
+        if len(groups) > 1:
+            group = brand_col.selectbox("Group", groups, key="group", on_change=reset_group_choices)
+        else:
+            group = groups[0]
+        brands = all_brands[all_brands["brand_group"] == group].reset_index(drop=True)
+        names = brands["name"].tolist()
+        own_index = int(brands["is_own"].astype(bool).idxmax()) if brands["is_own"].any() else 0
         brand_name = brand_col.selectbox("Brand", names, index=own_index, key="brand")
         others = [n for n in names if n != brand_name]
         competitors = comp_col.multiselect("Competitors", others, default=others)
         picked = date_col.date_input(
             "Date range", value=(today - timedelta(days=DEFAULT_DAYS - 1), today), max_value=today, format="DD/MM/YYYY"
         )
-        options = data.source_options(data.sources_with_data())
+        software = get_profile(brands["profile"].iloc[0]).name == SOFTWARE
+        group_ids = tuple(int(i) for i in brands["id"])
+        options = data.source_options(data.sources_with_data(group_ids), data.CORE_SOURCES if software else ())
         source_labels = source_col.pills(
             "Sources", list(options.values()), selection_mode="multi", default=list(options.values()),
             key="sources",
@@ -71,7 +87,7 @@ def header(brands: pd.DataFrame) -> tuple[pd.Series, list[pd.Series], date, date
     sources = tuple(k for k, v in options.items() if v in (source_labels or []))
     brand = brands.loc[brands["name"] == brand_name].iloc[0]
     comps = [brands.loc[brands["name"] == n].iloc[0] for n in competitors]
-    return brand, comps, start, end, sources
+    return brands, brand, comps, start, end, sources
 
 
 # ---------------------------------------------------------------- live parts (refresh without reloading the page)
@@ -448,7 +464,8 @@ def executive_summary(brand: pd.Series, comps: list[pd.Series], matrix: pd.DataF
     own = current[current["brand_id"] == brand["id"]]
     k = data.compute_kpis(own, previous)
     summary = insights.summary_picks(brand["name"], matrix, table, int(brand["id"]), [int(c["id"]) for c in comps],
-                                     current, k.net_sentiment, k.net_sentiment_change, days)
+                                     current, k.net_sentiment, k.net_sentiment_change, days,
+                                     get_profile(brand["profile"]).request)
     with glass_card("summary"):
         section_title("Executive summary", f"{brand['name']} this period, in 20 seconds · built from the numbers above")
         lines = [("risk", summary.risk), ("win", summary.win), ("request", summary.request), ("change", summary.change)]
@@ -481,10 +498,15 @@ def main() -> None:
         with glass_card("setup"):
             empty_state("No brands yet", "Run python manage_brands.py, then fetch.py and the NLP pipeline.")
         return
-    brand, comps, start, end, sources = header(brands)
+    brands, brand, comps, start, end, sources = header(brands)
     if not sources:
         with glass_card("no-sources"):
-            empty_state("No sources selected", "Pick at least one source in the header to see data.")
+            if data.sources_with_data(tuple(int(i) for i in brands["id"])):
+                empty_state("No sources selected", "Pick at least one source in the header to see data.")
+            else:
+                group = brands["brand_group"].iloc[0]
+                empty_state(f"No mentions for {group} yet",
+                            "Run python fetch.py, then the NLP pipeline (or wait for the collector's next cycle).")
         return
     days = (end - start).days + 1
     prev_start, prev_end = data.previous_period(start, end)

@@ -31,6 +31,8 @@ from nlp.priority import run_priority
 from nlp.topics import rebuild_topic_daily
 from sources.base import utc_now
 
+DEMO_GROUP = "Note apps"
+
 DAYS = 60
 VOLUME = 1.4  # scales every theme's daily rate (not the spikes)
 MODEL_VERSION = "demo"
@@ -250,7 +252,8 @@ def seed(engine: Engine, now: datetime | None = None, seed_value: int = 7) -> Se
     summary = SeedSummary()
 
     with factory() as session:
-        sync_brands(session, load_yaml(PROJECT_ROOT / "brands.yaml"))
+        # the demo story is about note apps only; other groups in brands.yaml are left out
+        sync_brands(session, [e for e in load_yaml(PROJECT_ROOT / "brands.yaml") if e.group == DEMO_GROUP])
         session.commit()
         brands = {b.name: b for b in session.scalars(select(Brand))}
     summary.brands = len(brands)
@@ -332,7 +335,7 @@ def schema_statements(db_name: str) -> list[str]:
     sql = SCHEMA_FILE.read_text(encoding="utf-8")
     sql = re.sub(r"(?m)^CREATE DATABASE IF NOT EXISTS brand_radar\b", f"CREATE DATABASE IF NOT EXISTS {db_name}", sql)
     sql = re.sub(r"(?m)^USE brand_radar;", f"USE {db_name};", sql)
-    sql = "\n".join(line for line in sql.splitlines() if not line.strip().startswith("--"))
+    sql = re.sub(r"--[^\n]*", "", sql)  # comments, also inline ones (they may contain ";")
     return [s.strip() for s in sql.split(";") if s.strip()]
 
 

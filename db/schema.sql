@@ -19,6 +19,9 @@ CREATE TABLE IF NOT EXISTS brands (
   app_store_id   VARCHAR(32)  NULL,
   play_store_id  VARCHAR(255) NULL,
   features       JSON         NULL,
+  brand_group    VARCHAR(64)  NOT NULL DEFAULT 'Default',           -- one own brand + its competitors
+  profile        VARCHAR(32)  NOT NULL DEFAULT 'consumer_product',  -- industry profile (profiles.yaml)
+  config         JSON         NULL,      -- require_context, youtube_queries, sources
   PRIMARY KEY (id),
   UNIQUE KEY uq_brands_name (name)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
@@ -36,6 +39,7 @@ CREATE TABLE IF NOT EXISTS mentions (
   rating       TINYINT UNSIGNED NULL,
   created_at   DATETIME        NOT NULL,
   fetched_at   DATETIME        NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  language     VARCHAR(16)     NULL,      -- 'en', 'hi', 'hinglish', 'ko', 'und'… (nlp/language.py)
   PRIMARY KEY (id),
   UNIQUE KEY uq_mentions_brand_source_external (brand_id, source, external_id),
   KEY ix_mentions_brand_created (brand_id, created_at),
@@ -146,4 +150,33 @@ CREATE TABLE IF NOT EXISTS collector_runs (
   error           TEXT         NULL,
   PRIMARY KEY (id),
   KEY ix_collector_runs_started (started_at)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- YouTube videos whose title matched a brand: their comments are re-read on later cycles without
+-- spending search calls (search.list has its own small daily cap)
+CREATE TABLE IF NOT EXISTS youtube_videos (
+  id              BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+  brand_id        INT UNSIGNED  NOT NULL,
+  video_id        VARCHAR(32)   NOT NULL,
+  title           VARCHAR(512)  NOT NULL,
+  channel         VARCHAR(255)  NULL,
+  published_at    DATETIME      NOT NULL,
+  first_seen_at   DATETIME      NOT NULL,
+  comments_checked_at DATETIME  NULL,
+  comments_disabled BOOLEAN     NOT NULL DEFAULT FALSE,
+  PRIMARY KEY (id),
+  UNIQUE KEY uq_youtube_videos_brand_video (brand_id, video_id),
+  CONSTRAINT fk_youtube_videos_brand FOREIGN KEY (brand_id)
+    REFERENCES brands (id) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- Quota spent per API and day (YouTube's quota day is Pacific time); sources stop at the budget
+CREATE TABLE IF NOT EXISTS api_usage (
+  id     INT UNSIGNED NOT NULL AUTO_INCREMENT,
+  api    VARCHAR(32)  NOT NULL,            -- 'youtube'
+  bucket VARCHAR(32)  NOT NULL,            -- 'search' (calls) / 'units'
+  day    DATE         NOT NULL,
+  used   INT UNSIGNED NOT NULL DEFAULT 0,
+  PRIMARY KEY (id),
+  UNIQUE KEY uq_api_usage_api_bucket_day (api, bucket, day)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;

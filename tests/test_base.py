@@ -172,3 +172,15 @@ def test_cap_per_author_keeps_the_newest_three() -> None:
     assert sorted(x.external_id for x in kept if x.author == "maker") == ["3", "4", "5"]  # newest three
     assert sum(x.author is None for x in kept) == 4  # anonymous items are never capped
     assert any(x.author == "reader" for x in kept)
+
+
+def test_reject_reasons() -> None:
+    from sources.base import reject_reason
+
+    doms = BrandSpec(id=1, name="DOMS", keywords=("DOMS",), exclude=("DOMS Recruitment",), exclude_if=("leg day",),
+                     require_context=("pencil", "stationery"))
+    assert reject_reason("DOMS pencils are smooth", doms) is None  # simple plural of a context word
+    assert reject_reason("DOMS after leg day, pencil in hand", doms) == "exclude_if: leg day"
+    assert reject_reason("DOMS Recruitment drive for pencil plant", doms) == "only an excluded phrase"
+    assert reject_reason("Delayed onset muscle soreness", doms) == "name not found"
+    assert reject_reason("DOMS shares rose today", doms) == "no context word"

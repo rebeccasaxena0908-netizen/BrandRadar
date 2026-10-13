@@ -83,6 +83,18 @@ def check_env() -> bool:
         "configured" if settings.reddit_enabled else "not set — Reddit source will be skipped",
         warn_only=True,
     )
+    report(
+        settings.youtube_enabled,
+        "YouTube API key",
+        "configured" if settings.youtube_enabled else "not set — YouTube source will be skipped (README: Enabling YouTube)",
+        warn_only=True,
+    )
+    try:
+        from nlp.profiles import profile_names
+
+        report(True, "profiles.yaml loads", ", ".join(profile_names()))
+    except Exception as exc:  # noqa: BLE001
+        report(False, "profiles.yaml loads", str(exc))
     return env_file.exists()
 
 
@@ -102,7 +114,7 @@ def model_unique_keys() -> list[tuple[str, tuple[str, tuple[str, ...]]]]:
 def check_database() -> None:
     section("MySQL / MariaDB")
     try:
-        from sqlalchemy import text
+        from sqlalchemy import bindparam, text
 
         from config import settings
         from db.models import TABLE_NAMES
@@ -198,6 +210,41 @@ def check_models() -> None:
     report(device != "cpu", "GPU for inference", f"device = {device}", warn_only=True)
 
 
+def check_brands() -> None:
+    """Groups, and per brand: mentions, analysed, and texts skipped because they are not English."""
+    section("Brands by group (mentions · analysed · skipped, not English)")
+    try:
+        from sqlalchemy import bindparam, text
+
+        from db.session import get_engine
+        from nlp.language import ANALYSED
+        from sources.youtube import quota_day
+
+        with get_engine().connect() as conn:
+            rows = conn.execute(text(
+                "SELECT b.brand_group, b.profile, b.name, b.is_own, COUNT(m.id), "
+                "SUM(a.sentiment IS NOT NULL), "
+                "SUM(a.mention_id IS NOT NULL AND COALESCE(m.language, 'und') NOT IN :analysed) "
+                "FROM brands b LEFT JOIN mentions m ON m.brand_id = b.id "
+                "LEFT JOIN analysis a ON a.mention_id = m.id "
+                "GROUP BY b.id ORDER BY b.brand_group, b.is_own DESC, b.name"
+            ).bindparams(bindparam("analysed", expanding=True)), {"analysed": list(ANALYSED)}).all()
+            usage = dict(conn.execute(text("SELECT bucket, used FROM api_usage WHERE api = 'youtube' AND day = :d"),
+                                      {"d": quota_day()}).all())
+    except Exception as exc:  # noqa: BLE001
+        report(False, "Read brands", repr(exc))
+        return
+    group = None
+    for g, profile, name, own, mentions, analysed, skipped in rows:
+        if g != group:
+            group = g
+            print(f"    {g} ({profile})")
+        star = "*" if own else " "
+        print(f"     {star}{name:<22} {mentions:>6,} · {int(analysed or 0):>6,} · {int(skipped or 0):>4,}")
+    print("     (* = own brand)")
+    print(f"    YouTube quota today (Pacific): {usage.get('search', 0)} search calls, {usage.get('units', 0)} units")
+
+
 def check_extras() -> None:
     section("Collector and demo data")
     try:
@@ -237,6 +284,7 @@ def main() -> int:
     check_models()
     if check_env():
         check_database()
+        check_brands()
         check_extras()
 
     print()

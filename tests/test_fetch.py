@@ -97,7 +97,7 @@ def test_fetch_runs_logged_for_success_error_and_warnings(
         FakeSource("appstore", [raw("a")], warnings=["in: HTTPError 503"]),
         DisabledSource(),
     ]
-    results = run_fetch(factory, [notion], sources, SINCE)
+    results = run_fetch(factory, [notion], sources, SINCE, per_brand_sources=False)
 
     # the broken source did not stop the next one
     assert [(r.source, r.new_rows, r.error is not None, r.skipped) for r in results] == [
@@ -131,3 +131,20 @@ def test_load_brands_filters_and_rejects_unknown(factory: sessionmaker[Session],
     assert loaded.keywords == ("Notion", "notion.so") and loaded.exclude == ("Notion Ink",)
     with pytest.raises(SystemExit):
         load_brands(factory, ["Nope"])
+
+
+def test_each_brand_only_gets_its_own_sources(factory: sessionmaker[Session], notion: BrandSpec) -> None:
+    from dataclasses import replace
+
+    doms = replace(notion, id=notion.id, name="DOMS", profile="stationery", sources=None)  # profile default sources
+    picky = replace(notion, sources=("appstore",))  # its own list wins over the profile's
+    sources = [FakeSource("hackernews", [raw("h")]), FakeSource("appstore", [raw("a")]), FakeSource("youtube", [raw("y")])]
+    results = run_fetch(factory, [picky, doms], sources, SINCE)
+    assert [(r.source, r.brand) for r in results] == [("appstore", "Notion"), ("youtube", "DOMS")]
+
+
+def test_every_known_source_can_be_fetched() -> None:
+    from fetch import SOURCE_FACTORIES
+    from sources.base import ALL_SOURCES
+
+    assert set(SOURCE_FACTORIES) == set(ALL_SOURCES)

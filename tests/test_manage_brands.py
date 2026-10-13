@@ -8,7 +8,7 @@ from sqlalchemy.orm import Session, sessionmaker
 
 from config import PROJECT_ROOT
 from db.models import Brand
-from manage_brands import load_yaml, sync_brands
+from manage_brands import BrandEntry, add_brand, dry_run, load_yaml, sync_brands
 
 YAML = """
 brands:
@@ -87,6 +87,12 @@ def test_sync_adds_then_updates(tmp_path: Path) -> None:
         ("brands:\n  - name: A\n    is_own: true\n", "at least one keyword"),
         ("brands:\n  - name: A\n    is_own: true\n    keywords: [a]\n  - name: a\n    keywords: [b]\n", "duplicate"),
         ("brands:\n  - name: A\n    is_own: true\n    keywords: [a, -b]\n", "exclude"),
+        ("brands:\n  - name: A\n    is_own: true\n    keywords: [a]\n    sources: [amazon]\n", "unknown source"),
+        ("brands:\n  - name: A\n    is_own: true\n    keywords: [a]\n    profile: cars\n", "unknown profile"),
+        ("brands:\n  - name: A\n    is_own: true\n    keywords: [a]\n    group: G\n"
+         "  - name: B\n    is_own: true\n    keywords: [b]\n    group: G\n", "group 'G' needs exactly one"),
+        ("brands:\n  - name: A\n    is_own: true\n    keywords: [a]\n    group: G\n    profile: software\n"
+         "  - name: B\n    keywords: [b]\n    group: G\n    profile: stationery\n", "mixes profiles"),
     ],
 )
 def test_invalid_yaml_rejected(tmp_path: Path, text: str, message: str) -> None:
@@ -146,3 +152,109 @@ def test_subreddits_stored_with_r_prefix(tmp_path: Path) -> None:
     bad = "brands:\n  - name: A\n    is_own: true\n    keywords: [Aa]\n    subreddits: [not a sub]\n"
     with pytest.raises(ValueError, match="invalid subreddit"):
         load_yaml(write(tmp_path, bad))
+
+
+# ---------------------------------------------------------------- groups, add, dry-run
+
+GROUPS = """
+brands:
+  - name: Notion
+    group: Note apps
+    profile: software
+    is_own: true
+    keywords: [Notion]
+  - name: DOMS
+    group: Stationery
+    profile: stationery
+    is_own: true
+    keywords: [DOMS]
+    require_context: [pencil, eraser]
+    youtube_queries: [DOMS pencil review]
+"""
+
+
+def test_brand_spec_comes_straight_from_the_yaml(tmp_path: Path) -> None:
+    doms = load_yaml(write(tmp_path, GROUPS))[1]
+    spec = doms.spec(7)
+    assert (spec.id, spec.group, spec.profile, spec.require_context) == (7, "Stationery", "stationery", ("pencil", "eraser"))
+    assert spec.youtube_queries == ("DOMS pencil review",) and spec.sources is None
+    assert doms.config() == {"require_context": ["pencil", "eraser"], "youtube_queries": ["DOMS pencil review"]}
+
+
+def answers(*replies: str):  # type: ignore[no-untyped-def]
+    queue = list(replies)
+    return lambda prompt: queue.pop(0)
+
+
+def test_add_competitor_to_an_existing_group(tmp_path: Path) -> None:
+    path = write(tmp_path, GROUPS)
+    said: list[str] = []
+    entry = add_brand(path, answers(
+        "doms",  # taken (case-insensitive): asked again
+        "Apsara", "Stationery",
+        "Apsara",  # keywords
+        "pencil, eraser, sharpener",  # context
+        "Apsara Hotel",  # exclude
+        "",  # exclude_if
+        "",  # youtube queries: default
+        "",  # sources: profile defaults
+    ), said.append)
+    assert (entry.is_own, entry.profile, entry.group) == (False, "stationery", "Stationery")
+    assert entry.youtube_queries == ["Apsara review"] and entry.sources is None
+    assert any("Needs a name" in s for s in said)
+    text = path.read_text()
+    assert text.startswith(GROUPS.rstrip("\n"))  # existing text and comments are kept
+    new = load_yaml(path)[-1]
+    assert (new.name, new.require_context, new.exclude) == ("Apsara", ["pencil", "eraser", "sharpener"], ["Apsara Hotel"])
+
+
+def test_add_new_group_makes_the_own_brand_and_asks_for_a_profile(tmp_path: Path) -> None:
+    path = write(tmp_path, GROUPS)
+    entry = add_brand(path, answers(
+        "Laneige", "Skincare", "cars", "beauty_skincare",  # unknown profile: asked again
+        "Laneige", "-", "", "", "Laneige lip mask, Laneige review", "youtube, news",
+    ), lambda s: None)
+    assert entry.is_own and entry.profile == "beauty_skincare" and entry.sources == ["youtube", "news"]
+    assert load_yaml(path)[-1].youtube_queries == ["Laneige lip mask", "Laneige review"]
+
+
+def test_add_never_writes_an_invalid_file(tmp_path: Path) -> None:
+    path = write(tmp_path, GROUPS)
+    before = path.read_text()
+    with pytest.raises(ValueError, match="unknown source"):
+        add_brand(path, answers("Natraj", "Stationery", "Natraj", "", "", "", "", "amazon"), lambda s: None)
+    assert path.read_text() == before and not list(tmp_path.glob("*.new"))
+
+
+class FakeNamedSource:
+    def __init__(self, name: str, texts: list[str], enabled: bool = True) -> None:
+        from sources.base import BaseSource
+
+        self.name, self.texts, self.enabled = name, texts, enabled
+        self._base = BaseSource()
+
+    @property
+    def rejected(self):  # type: ignore[no-untyped-def]
+        return self._base.rejected
+
+    @property
+    def warnings(self):  # type: ignore[no-untyped-def]
+        return self._base.warnings
+
+    def fetch(self, brand, since):  # type: ignore[no-untyped-def]
+        from sources.base import RawMention
+
+        self._base.reset()
+        return [RawMention(self.name, str(i), t, since) for i, t in enumerate(self.texts) if self._base.accept(t, brand)]
+
+
+def test_dry_run_shows_matched_and_rejected_with_reasons(tmp_path: Path) -> None:
+    doms = load_yaml(write(tmp_path, GROUPS))[1].spec()
+    news = FakeNamedSource("news", ["DOMS pencil sales up", "DOMS after leg day", "Nothing about it"])
+    youtube = FakeNamedSource("youtube", [], enabled=False)
+    hn = FakeNamedSource("hackernews", ["DOMS pencil"])  # not a stationery source: not run
+    result = dry_run(doms, [news, youtube, hn], None)
+    assert result.matched == [("news", "DOMS pencil sales up")]
+    assert result.rejected == [("news", "no context word", "DOMS after leg day"),
+                               ("news", "name not found", "Nothing about it")]
+    assert result.notes == ["youtube: skipped (not configured)"]

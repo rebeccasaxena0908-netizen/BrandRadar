@@ -30,6 +30,8 @@ from config import settings
 from db.models import Analysis, Brand, Mention
 from nlp.models import ALL_MODELS, EMOTION_MODEL, SENTIMENT_MODEL, ZERO_SHOT_MODEL, Analyzer, Scores
 from nlp.features import Features, matched_features, normalise_features
+from nlp.language import ANALYSED, detect_language
+from nlp.profiles import SOFTWARE, Profile, get_profile
 from nlp.text import clean_text
 
 log = logging.getLogger("nlp.pipeline")
@@ -40,18 +42,9 @@ log = logging.getLogger("nlp.pipeline")
 # 4: "praise" is not allowed with negative sentiment (next-best category is used)
 PIPELINE_VERSION = 4
 
-# Stored label -> hypothesis phrase. Descriptive phrases work much better for zero-shot NLI.
-CATEGORY_HYPOTHESES: dict[str, str] = {
-    "bug": "a bug, crash or error",
-    "feature request": "a request for a new feature",
-    "pricing": "pricing, cost or subscription",
-    "performance": "speed or performance",
-    "UX/design": "the user interface or design",
-    "support": "customer support or service",
-    "praise": "praise or a compliment",
-    # Catch-all for neutral/technical talk, so "praise" stops being the default for HN threads.
-    "general discussion": "a general discussion, not a complaint or praise",
-}
+# Categories (label -> hypothesis) now come from the brand's industry profile (profiles.yaml).
+# CATEGORY_HYPOTHESES is the software profile's, kept for callers and tests.
+CATEGORY_HYPOTHESES: dict[str, str] = get_profile(SOFTWARE).categories
 CATEGORY_TEMPLATE = "This text is about {}."
 FEATURE_TEMPLATE = "This text talks about {}."
 
@@ -61,6 +54,8 @@ class PendingMention:
     id: int
     brand_id: int
     text: str  # cleaned
+    profile: str = SOFTWARE
+    language: str | None = "en"
 
 
 @dataclass
@@ -70,6 +65,8 @@ class RunStats:
     selected: int = 0
     analysed: int = 0
     empty: int = 0
+    language_skipped: int = 0
+    skipped_by_brand: dict[int, int] = field(default_factory=dict)  # brand id -> non-English mentions skipped
     failed: int = 0
     deleted: int = 0
     seconds: float = 0.0
@@ -79,11 +76,14 @@ class RunStats:
 # ---------------------------------------------------------------- pure helpers
 
 
-def build_model_version(hashes: dict[str, str]) -> str:
+def build_model_version(hashes: dict[str, str], profile: str = SOFTWARE) -> str:
+    """p<pipeline><profile tag>-s<sentiment>-e<emotion>-z<zero-shot>. The profile tag is empty for
+    software, so software rows keep their version; other profiles add e.g. '.beauty_skincare1'."""
     def short(name: str) -> str:
         return hashes.get(name, "unknown")[:8]
 
-    return f"p{PIPELINE_VERSION}-s{short(SENTIMENT_MODEL)}-e{short(EMOTION_MODEL)}-z{short(ZERO_SHOT_MODEL)}"
+    tag = get_profile(profile).version_tag
+    return f"p{PIPELINE_VERSION}{tag}-s{short(SENTIMENT_MODEL)}-e{short(EMOTION_MODEL)}-z{short(ZERO_SHOT_MODEL)}"
 
 
 def signed_sentiment(probs: Scores) -> float:
@@ -95,12 +95,13 @@ def top_label(scores: Scores) -> str | None:
     return max(scores, key=scores.__getitem__) if scores else None
 
 
-def pick_category(scores: Scores, sentiment: str | None) -> str | None:
-    """Best category label; "praise" is skipped for negative mentions ("used to be great, but...")."""
-    phrase_to_label = {v: k for k, v in CATEGORY_HYPOTHESES.items()}
+def pick_category(scores: Scores, sentiment: str | None, profile: Profile | None = None) -> str | None:
+    """Best category label; the praise label is skipped for negative mentions ("used to be great, but...")."""
+    profile = profile or get_profile(SOFTWARE)
+    phrase_to_label = {v: k for k, v in profile.categories.items()}
     ranked = [phrase_to_label.get(p, p) for p in sorted(scores, key=scores.__getitem__, reverse=True)]
     for label in ranked:
-        if not (label == "praise" and sentiment == "negative"):
+        if not (label == profile.praise and sentiment == "negative"):
             return label
     return None
 
@@ -111,6 +112,7 @@ def best_feature(scores: Scores, threshold: float) -> str | None:
 
 
 def empty_row(mention_id: int, version: str) -> dict[str, Any]:
+    """No labels: the text is empty after cleaning, or not in a language the models handle."""
     return {
         "mention_id": mention_id, "sentiment": None, "sentiment_score": None, "emotion": None,
         "emotion_scores": None, "category": None, "feature": None, "topic_id": None,
@@ -123,13 +125,22 @@ def analyse_batch(
     items: Sequence[PendingMention],
     features_by_brand: dict[int, Features],
     threshold: float,
-    version: str,
+    version: str | dict[str, str],
 ) -> list[dict[str, Any]]:
-    """Run all models on one batch and return analysis rows (not yet written)."""
+    """Run all models on one batch and return analysis rows (not yet written). Categories use each
+    mention's industry profile; `version` is one model_version or a profile -> model_version map."""
     texts = [m.text for m in items]
     sentiments = analyzer.sentiment(texts)
     emotions = analyzer.emotion(texts)
-    categories = analyzer.zero_shot(texts, list(CATEGORY_HYPOTHESES.values()), CATEGORY_TEMPLATE, False)
+    categories: list[Scores] = [{} for _ in items]
+    by_profile: dict[str, list[int]] = defaultdict(list)
+    for i, m in enumerate(items):
+        by_profile[m.profile].append(i)
+    for profile_name, indexes in by_profile.items():
+        hypotheses = list(get_profile(profile_name).categories.values())
+        scores = analyzer.zero_shot([texts[i] for i in indexes], hypotheses, CATEGORY_TEMPLATE, False)
+        for i, s in zip(indexes, scores):
+            categories[i] = s
 
     # Features: keyword gate first, then zero-shot confirms and picks among the matched candidates.
     # Mentions with the same candidate set share one zero-shot call.
@@ -153,10 +164,10 @@ def analyse_batch(
             "sentiment_score": signed_sentiment(sent),
             "emotion": top_label(emo),
             "emotion_scores": {k: round(v, 4) for k, v in sorted(emo.items())},
-            "category": pick_category(cat, sentiment),
+            "category": pick_category(cat, sentiment, get_profile(m.profile)),
             "feature": features.get(m.id),
             "topic_id": None,
-            "model_version": version,
+            "model_version": version if isinstance(version, str) else version[m.profile],
         })
     return rows
 
@@ -192,10 +203,22 @@ def delete_for_reanalysis(
     if brands is not None:
         stmt = stmt.where(Analysis.mention_id.in_(select(Mention.id).where(Mention.brand_id.in_(brands))))
     if version_filter == "outdated":
-        stmt = stmt.where(or_(Analysis.model_version != current_version, Analysis.model_version.is_(None)))
+        # current_version is the software one; other profiles have their own (see current_versions)
+        current = current_versions(session, current_version)
+        stale = [Mention.brand_id.in_(select(Brand.id).where(Brand.profile == p)) & (Analysis.model_version != v)
+                 for p, v in current.items()]
+        stmt = stmt.where(or_(Analysis.model_version.is_(None),
+                              Analysis.mention_id.in_(select(Mention.id).where(or_(*stale)))))
     elif version_filter:
         stmt = stmt.where(Analysis.model_version == version_filter)
     return session.execute(stmt.execution_options(synchronize_session=False)).rowcount or 0
+
+
+def current_versions(session: Session, software_version: str) -> dict[str, str]:
+    """profile -> current model_version, for every profile in use (derived from the software one)."""
+    suffix = software_version.split("-", 1)[1]
+    profiles = set(session.scalars(select(Brand.profile))) | {SOFTWARE}
+    return {p: f"p{PIPELINE_VERSION}{get_profile(p).version_tag}-{suffix}" for p in profiles}
 
 
 def restamp(session: Session, old_version: str, new_version: str) -> int:
@@ -209,7 +232,8 @@ def restamp(session: Session, old_version: str, new_version: str) -> int:
 
 def select_pending(session: Session, brands: list[int] | None, limit: int | None) -> list[PendingMention]:
     stmt = (
-        select(Mention.id, Mention.brand_id, Mention.text)
+        select(Mention.id, Mention.brand_id, Mention.text, Brand.profile, Mention.language)
+        .join(Brand, Brand.id == Mention.brand_id)
         .outerjoin(Analysis, Analysis.mention_id == Mention.id)
         .where(Analysis.mention_id.is_(None))
         .order_by(Mention.id)
@@ -218,11 +242,14 @@ def select_pending(session: Session, brands: list[int] | None, limit: int | None
         stmt = stmt.where(Mention.brand_id.in_(brands))
     if limit:
         stmt = stmt.limit(limit)
-    return [PendingMention(i, b, clean_text(t)) for i, b, t in session.execute(stmt)]
+    return [PendingMention(i, b, clean_text(t), p or SOFTWARE, lang if lang else detect_language(t))
+            for i, b, t, p, lang in session.execute(stmt)]
 
 
 def load_features(session: Session) -> dict[int, Features]:
-    return {bid: normalise_features(f) for bid, f in session.execute(select(Brand.id, Brand.features))}
+    """Each brand's own features, else its profile's defaults."""
+    return {bid: normalise_features(f or get_profile(p).features)
+            for bid, f, p in session.execute(select(Brand.id, Brand.features, Brand.profile))}
 
 
 def write_rows(factory: sessionmaker[Session], rows: list[dict[str, Any]]) -> None:
@@ -263,12 +290,23 @@ def run_pipeline(
         features_by_brand = load_features(session)
     stats.selected = len(pending)
 
+    with factory() as session:
+        versions = current_versions(session, stats.model_version)
+        # mentions fetched before language detection existed: store what was detected
+        detected = {m.id: m.language for m in pending}
+        for mention in session.scalars(select(Mention).where(Mention.language.is_(None), Mention.id.in_(detected))):
+            mention.language = detected[mention.id]
+        session.commit()
     empty = [m for m in pending if not m.text]
-    if empty:
-        write_rows(factory, [empty_row(m.id, stats.model_version) for m in empty])
+    other_language = [m for m in pending if m.text and m.language not in ANALYSED]
+    if empty or other_language:
+        write_rows(factory, [empty_row(m.id, versions.get(m.profile, stats.model_version)) for m in empty + other_language])
         stats.empty = len(empty)
+        stats.language_skipped = len(other_language)
+        for m in other_language:
+            stats.skipped_by_brand[m.brand_id] = stats.skipped_by_brand.get(m.brand_id, 0) + 1
     # Similar lengths in a batch means less padding, which is much faster.
-    todo = sorted((m for m in pending if m.text), key=lambda m: len(m.text))
+    todo = sorted((m for m in pending if m.text and m.language in ANALYSED), key=lambda m: len(m.text))
 
     bar = None
     if progress and todo:
@@ -279,13 +317,13 @@ def run_pipeline(
     for start in range(0, len(todo), batch_size):
         batch = todo[start : start + batch_size]
         try:
-            rows = analyse_batch(analyzer, batch, features_by_brand, threshold, stats.model_version)
+            rows = analyse_batch(analyzer, batch, features_by_brand, threshold, versions)
         except Exception:  # noqa: BLE001 — isolate the bad mention, keep the rest
             log.exception("batch starting at mention %d failed; retrying one by one", batch[0].id)
             rows = []
             for m in batch:
                 try:
-                    rows += analyse_batch(analyzer, [m], features_by_brand, threshold, stats.model_version)
+                    rows += analyse_batch(analyzer, [m], features_by_brand, threshold, versions)
                 except Exception as exc:  # noqa: BLE001
                     log.error("mention %d failed: %s: %s", m.id, type(exc).__name__, exc)
                     stats.failed += 1
@@ -361,6 +399,13 @@ def main(argv: Sequence[str] | None = None) -> int:
     print(f"Selected:       {stats.selected} mentions without analysis")
     print(f"Analysed:       {stats.analysed}")
     print(f"Empty text:     {stats.empty} (stored with NULL labels)")
+    print(f"Not English:    {stats.language_skipped} (stored with NULL labels, waiting for translation)")
+    if stats.skipped_by_brand:
+        from db.session import get_session_factory as _f
+
+        with _f()() as session:
+            names = dict(session.execute(select(Brand.id, Brand.name)).all())
+        print("                " + ", ".join(f"{names.get(b, b)} {n}" for b, n in sorted(stats.skipped_by_brand.items())))
     print(f"Failed:         {stats.failed}" + (f"  ids: {stats.failed_ids[:20]}" if stats.failed else ""))
     rate = stats.analysed / stats.seconds if stats.seconds else 0
     print(f"Total time:     {stats.seconds:.1f}s ({rate:.1f} mentions/s)")

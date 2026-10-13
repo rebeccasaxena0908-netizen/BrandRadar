@@ -338,3 +338,61 @@ def test_targeted_reanalyse_and_restamp(factory: sessionmaker[Session], featured
         assert restamp(s, old, new) == 2
         s.commit()
     assert {a.model_version for a in analyses(factory).values()} == {new}
+
+
+# ---------------------------------------------------------------- profiles and languages
+
+
+class ProfileAwareFake(FakeAnalyzer):
+    """Scores the first hypothesis it is given highest, so the category shows which profile was used."""
+
+    def zero_shot(self, texts: list[str], labels: list[str], template: str, multi_label: bool) -> list[Scores]:
+        if multi_label or CATEGORY_HYPOTHESES["bug"] in labels:
+            return super().zero_shot(texts, labels, template, multi_label)
+        self._check("category", texts)
+        return [{l: (0.9 if i == 0 else 0.01) for i, l in enumerate(labels)} for _ in texts]
+
+
+def test_categories_and_version_follow_each_brands_profile(factory: sessionmaker[Session], brands: list[BrandSpec]) -> None:
+    with factory() as s:
+        s.get(Brand, brands[1].id).profile = "beauty_skincare"  # type: ignore[union-attr]
+        s.get(Brand, brands[1].id).features = None  # type: ignore[union-attr]
+        s.commit()
+    soft = add_mentions(factory, brands[0], ["the app crashes when I open it today"])[0]
+    beauty = add_mentions(factory, brands[1], ["this cream is way too sticky on my face"])[0]
+    run_pipeline(factory, ProfileAwareFake())
+    rows = analyses(factory)
+    assert rows[soft].category == "bug" and rows[soft].model_version == build_model_version(HASHES)
+    assert rows[beauty].category == "skin reaction"  # the first beauty_skincare category
+    assert rows[beauty].model_version == build_model_version(HASHES, "beauty_skincare")
+    assert rows[beauty].model_version.startswith(f"p{PIPELINE_VERSION}.beauty_skincare1-")
+    assert rows[beauty].feature == "texture"  # profile default features ("sticky" is a texture synonym)
+
+    # both are current: nothing is outdated
+    stats = run_pipeline(factory, ProfileAwareFake(), reanalyse=True, model_version="outdated")
+    assert stats.selected == 0
+
+
+def test_software_version_is_unchanged() -> None:
+    assert build_model_version(HASHES) == build_model_version(HASHES, "software") == "p%s-saaaaaaaa-ebbbbbbbb-zcccccccc" % PIPELINE_VERSION
+
+
+def test_non_english_is_stored_without_labels_and_counted(factory: sessionmaker[Session], brands: list[BrandSpec]) -> None:
+    ids = add_mentions(factory, brands[0], [
+        "I love how fast the new editor is on my phone",
+        "Ye app bahut accha hai lekin sync nahi hota",  # Hinglish
+        "Une perte de temps, le produit ne fonctionne pas du tout",  # French
+        "Love it!",  # too short to tell: still analysed
+    ])
+    fake = FakeAnalyzer()
+    stats = run_pipeline(factory, fake)
+    rows = analyses(factory)
+    assert (stats.analysed, stats.language_skipped) == (2, 2)
+    assert stats.skipped_by_brand == {brands[0].id: 2}
+    assert rows[ids[0]].sentiment == "positive" and rows[ids[3]].sentiment == "positive"
+    for i in ids[1:3]:
+        assert rows[i].sentiment is None and rows[i].category is None
+    with factory() as s:
+        assert s.get(Mention, ids[1]).language == "hinglish"  # type: ignore[union-attr]
+    # not retried on the next run
+    assert run_pipeline(factory, FakeAnalyzer()).selected == 0

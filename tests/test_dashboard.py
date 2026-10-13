@@ -132,9 +132,11 @@ def engine():  # type: ignore[no-untyped-def]
     eng = create_engine("sqlite://", poolclass=StaticPool, connect_args={"check_same_thread": False})
     Base.metadata.create_all(eng)
     with sessionmaker(bind=eng)() as s:
-        notion = Brand(name="Notion", is_own=True, keywords=["Notion"])
-        clickup = Brand(name="ClickUp", is_own=False, keywords=["clickup"])
-        s.add_all([notion, clickup])
+        notion = Brand(name="Notion", is_own=True, keywords=["Notion"], brand_group="Note apps", profile="software")
+        clickup = Brand(name="ClickUp", is_own=False, keywords=["clickup"], brand_group="Note apps", profile="software")
+        doms = Brand(name="DOMS", is_own=True, keywords=["DOMS"], brand_group="Stationery", profile="stationery")
+        apsara = Brand(name="Apsara", is_own=False, keywords=["Apsara"], brand_group="Stationery", profile="stationery")
+        s.add_all([notion, clickup, doms, apsara])
         s.flush()
         texts = ["sync is broken again and support never answers, I lost a whole afternoon of notes",
                  "love the templates and databases so much, they make planning my week easy",
@@ -231,6 +233,28 @@ def test_thin_brand_shows_designed_empty_states(app) -> None:  # type: ignore[no
     assert len(empties) >= 4  # wheel, trend, clouds, no topics (the radar still shows the competitors' features)
     assert any("No complaint topics yet" in e for e in empties)
     assert any("No spikes this week" in m.value for m in at.markdown)  # calm alerts state, not an empty card
+
+
+def test_group_selector_keeps_everything_within_the_group(app) -> None:  # type: ignore[no-untyped-def]
+    at = app.run()
+    assert at.selectbox(key="group").options == ["Note apps", "Stationery"]
+    assert at.selectbox(key="brand").options == ["Notion", "ClickUp"]
+    assert at.multiselect[0].options == ["ClickUp"]
+
+
+def test_other_group_starts_on_its_own_brand(app) -> None:  # type: ignore[no-untyped-def]
+    app.session_state["group"] = "Stationery"
+    at = app.run()
+    assert not at.exception
+    assert at.selectbox(key="brand").value == "DOMS" and at.selectbox(key="brand").options == ["DOMS", "Apsara"]
+    assert at.multiselect[0].options == ["Apsara"]  # no note apps among the competitors
+    # no mentions yet and no software core sources (Hacker News, App Store, Google Play) for stationery
+    assert any("No mentions for Stationery yet" in m.value for m in at.markdown)
+
+
+def test_source_options_for_other_industries_only_show_sources_with_data() -> None:
+    assert data.source_options([], ()) == {}
+    assert list(data.source_options(["news", "youtube", "reddit"], ())) == ["reddit", "youtube", "news"]
 
 
 def test_no_sources_selected(app) -> None:  # type: ignore[no-untyped-def]

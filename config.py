@@ -62,6 +62,12 @@ class Settings:
     reddit_client_id: str
     reddit_client_secret: str
     reddit_user_agent: str
+    youtube_api_key: str
+    youtube_search_budget: int
+    youtube_unit_budget: int
+    youtube_max_videos: int
+    youtube_comment_pages: int
+    news_min_interval: float
 
     @property
     def database_url(self) -> str:
@@ -74,6 +80,10 @@ class Settings:
     @property
     def reddit_enabled(self) -> bool:
         return bool(self.reddit_client_id and self.reddit_client_secret)
+
+    @property
+    def youtube_enabled(self) -> bool:
+        return bool(self.youtube_api_key)
 
 
 def _get_bool(name: str) -> bool:
@@ -108,7 +118,7 @@ def load_settings() -> Settings:
         topic_min_complaints=_get_int("TOPIC_MIN_COMPLAINTS", 30),
         topic_min_size=_get_int("TOPIC_MIN_SIZE", 5),
         topic_outlier_similarity=_get_float("TOPIC_OUTLIER_SIMILARITY", 0.5),
-        topic_excluded_sources=_get_list("TOPIC_EXCLUDED_SOURCES", "devto"),
+        topic_excluded_sources=_get_list("TOPIC_EXCLUDED_SOURCES", "devto,news"),
         priority_volume_threshold=_get_int("PRIORITY_VOLUME_THRESHOLD", 5),
         priority_pain_threshold=_get_float("PRIORITY_PAIN_THRESHOLD", 0.15),
         priority_praise_pain_max=_get_float("PRIORITY_PRAISE_PAIN_MAX", 0.02),
@@ -118,6 +128,12 @@ def load_settings() -> Settings:
         reddit_client_id=os.getenv("REDDIT_CLIENT_ID", ""),
         reddit_client_secret=os.getenv("REDDIT_CLIENT_SECRET", ""),
         reddit_user_agent=os.getenv("REDDIT_USER_AGENT", "brand-radar/0.1"),
+        youtube_api_key=os.getenv("YOUTUBE_API_KEY", "").strip(),
+        youtube_search_budget=_get_int("YOUTUBE_SEARCH_BUDGET", 80),
+        youtube_unit_budget=_get_int("YOUTUBE_UNIT_BUDGET", 8000),
+        youtube_max_videos=_get_int("YOUTUBE_MAX_VIDEOS", 25),
+        youtube_comment_pages=_get_int("YOUTUBE_COMMENT_PAGES", 2),
+        news_min_interval=_get_float("NEWS_MIN_INTERVAL", 6.0),
     )
 
 

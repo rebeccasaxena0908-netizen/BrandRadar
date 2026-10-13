@@ -33,7 +33,7 @@ from sqlalchemy.orm import Session, sessionmaker
 
 from config import PROJECT_ROOT, settings
 from db.models import Analysis, Brand, CollectorRun, FetchRun, Mention
-from sources.base import utc_now
+from sources.base import BrandSpec, brand_sources, utc_now
 
 log = logging.getLogger("collector")
 
@@ -135,7 +135,8 @@ def fetch_since(factory: sessionmaker[Session], now: datetime, pairs: list[tuple
             from fetch import SOURCE_FACTORIES
 
             enabled = [name for name, make in SOURCE_FACTORIES.items() if make().enabled]
-            pairs = [(s, b) for s in enabled for b in session.scalars(select(Brand.id))]
+            specs = [BrandSpec.from_model(b) for b in session.scalars(select(Brand))]
+            pairs = [(s, b.id) for b in specs for s in brand_sources(b) if s in enabled]
     last = {(s, b): t for s, b, t in rows}
     starts = [last.get(pair) or fallback for pair in pairs]
     return max(min(starts) - FETCH_OVERLAP, fallback) if starts else fallback
@@ -143,8 +144,9 @@ def fetch_since(factory: sessionmaker[Session], now: datetime, pairs: list[tuple
 
 def real_stages(factory: sessionmaker[Session]) -> Stages:
     def fetch(since: datetime) -> FetchOutcome:
-        from fetch import SOURCE_FACTORIES, load_brands, run_fetch
+        from fetch import SOURCE_FACTORIES, load_brands, purge_expired_data, run_fetch
 
+        purge_expired_data(factory)
         sources = [f() for f in SOURCE_FACTORIES.values()]
         results = run_fetch(factory, load_brands(factory), sources, since)
         errors = [f"{r.source}/{r.brand}: {r.error}" for r in results if r.error]

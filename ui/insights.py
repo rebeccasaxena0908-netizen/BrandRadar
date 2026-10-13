@@ -162,6 +162,7 @@ def summary_picks(
     net_sentiment: float | None,
     net_change: float | None,
     days: int,
+    request_label: str | None = "feature request",
 ) -> Summary:
     """Four plain-language lines built from the numbers only (no LLM). Values are HTML-safe text with
     <b> for emphasis."""
@@ -209,13 +210,14 @@ def summary_picks(
                 win = (f"Users like <b>{html.escape(feature_name(f))}</b> ({_fmt_net(own[f])} net sentiment), "
                        "but competitors score as well or better.")
 
-    # top requested feature
-    requests = mentions[(mentions["brand_id"] == brand_id) & (mentions["category"] == "feature request")]
+    # top requested feature (the profile's request label: "feature request", "product request", …)
+    noun = request_label or "request"
+    requests = mentions[(mentions["brand_id"] == brand_id) & (mentions["category"] == request_label)]
     if requests.empty:
-        request = "No feature requests in this period."
+        request = f"No {noun}s in this period."
     else:
         named = requests["feature"].dropna().value_counts()
-        total = f"{len(requests)} feature request{'s' if len(requests) != 1 else ''}"
+        total = f"{len(requests)} {noun}{'s' if len(requests) != 1 else ''}"
         if named.empty or int(named.iloc[0]) < MIN_REQUESTS_FOR_TOP:
             request = f"{total}; no single feature stands out yet."
         else:

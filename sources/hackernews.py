@@ -12,7 +12,6 @@ from sources.base import (
     HttpClient,
     RawMention,
     html_to_text,
-    matches_brand,
     shared_client,
 )
 
@@ -44,7 +43,7 @@ class HackerNewsSource(BaseSource):
                 if not object_id or object_id in found:
                     continue
                 mention = self._to_mention(hit)
-                if mention and matches_brand(mention.text, brand):
+                if mention and self.accept(mention.text, brand):
                     found[object_id] = mention
         return list(found.values())
 

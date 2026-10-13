@@ -27,9 +27,11 @@ if TYPE_CHECKING:
 log = logging.getLogger(__name__)
 
 
-# Sources found by keyword, tag or community (as opposed to per-app reviews), so brand rules apply to
-# them; see still_matches.
-KEYWORD_SOURCES = ("hackernews", "reddit", "mastodon", "devto")
+# Every source fetch.py knows (a brand's `sources:` in brands.yaml must use these names).
+ALL_SOURCES = ("hackernews", "appstore", "playstore", "reddit", "devto", "mastodon", "youtube", "news")
+# Sources found by keyword, tag, community or video (as opposed to per-app reviews), so brand rules
+# apply to them; see still_matches.
+KEYWORD_SOURCES = ("hackernews", "reddit", "mastodon", "devto", "youtube", "news")
 
 # ---------------------------------------------------------------- data types
 
@@ -45,6 +47,11 @@ class BrandSpec:
     exclude: tuple[str, ...] = ()
     exclude_if: tuple[str, ...] = ()
     subreddits: tuple[str, ...] = ()  # the brand's own subreddits (Reddit source)
+    require_context: tuple[str, ...] = ()  # ambiguous names: one of these must appear too
+    group: str = "Default"
+    profile: str = "consumer_product"
+    youtube_queries: tuple[str, ...] = ()
+    sources: tuple[str, ...] | None = None  # None = the profile's default sources
     app_store_id: str | None = None
     play_store_id: str | None = None
     features: tuple[str, ...] = ()
@@ -60,6 +67,11 @@ class BrandSpec:
             exclude=exclude,
             exclude_if=exclude_if,
             subreddits=split_subreddits(brand.keywords or []),
+            require_context=tuple((brand.config or {}).get("require_context") or ()),
+            group=brand.brand_group or "Default",
+            profile=brand.profile or "consumer_product",
+            youtube_queries=tuple((brand.config or {}).get("youtube_queries") or ()),
+            sources=tuple(brand.config["sources"]) if (brand.config or {}).get("sources") else None,
             app_store_id=brand.app_store_id,
             play_store_id=brand.play_store_id,
             features=tuple(brand.features or []),
@@ -79,6 +91,15 @@ class RawMention:
     rating: int | None = None
 
 
+def brand_sources(brand: BrandSpec) -> tuple[str, ...]:
+    """Sources to fetch for a brand: its own list, else its profile's defaults."""
+    if brand.sources is not None:
+        return brand.sources
+    from nlp.profiles import get_profile
+
+    return get_profile(brand.profile).sources
+
+
 @runtime_checkable
 class Source(Protocol):
     name: str
@@ -96,6 +117,7 @@ class BaseSource:
 
     def __init__(self) -> None:
         self.warnings: list[str] = []
+        self.rejected: list[tuple[str, str]] = []  # (text, reason) from the last fetch, for the dry-run
 
     def warn(self, message: str) -> None:
         log.warning("%s: %s", self.name, message)
@@ -103,6 +125,14 @@ class BaseSource:
 
     def reset(self) -> None:
         self.warnings = []
+        self.rejected = []
+
+    def accept(self, text: str, brand: BrandSpec) -> bool:
+        """matches_brand, remembering what was rejected and why (see `manage_brands.py dry-run`)."""
+        reason = reject_reason(text, brand)
+        if reason and len(self.rejected) < MAX_REJECTED_KEPT:
+            self.rejected.append((text, reason))
+        return reason is None
 
 
 # ---------------------------------------------------------------- time helpers
@@ -171,23 +201,44 @@ def excluded_by_context(text: str, brand: BrandSpec) -> bool:
     return any(_phrase_pattern(word).search(text) for word in brand.exclude_if)
 
 
-def matches_brand(text: str, brand: BrandSpec) -> bool:
-    """True if a keyword appears as a whole word once the exclude phrases are removed,
-    and none of the exclude_if context words appear (e.g. "Fallout" for Obsidian the studio)."""
-    if excluded_by_context(text, brand):
-        return False
+def has_required_context(text: str, brand: BrandSpec) -> bool:
+    """Ambiguous names ("Centella", "Apsara") also need a context word (skin, serum…; pencil, eraser…).
+    Context words match case-insensitively, as whole words with simple endings."""
+    if not brand.require_context:
+        return True
+    return any(re.search(rf"(?<!\w){re.escape(w)}(?:s|es|ed|ing)?(?!\w)", text, re.IGNORECASE) for w in brand.require_context)
+
+
+def reject_reason(text: str, brand: BrandSpec) -> str | None:
+    """Why a text is not about the brand, or None if it is (see matches_brand)."""
+    word = next((w for w in brand.exclude_if if _phrase_pattern(w).search(text)), None)
+    if word:
+        return f"exclude_if: {word}"
+    stripped = text
     for phrase in brand.exclude:
-        text = _phrase_pattern(phrase).sub(" ", text)
-    return any(_phrase_pattern(k).search(text) for k in brand.keywords)
+        stripped = _phrase_pattern(phrase).sub(" ", stripped)
+    if not any(_phrase_pattern(k).search(stripped) for k in brand.keywords):
+        return "only an excluded phrase" if stripped != text else "name not found"
+    if not has_required_context(text, brand):
+        return "no context word"
+    return None
+
+
+def matches_brand(text: str, brand: BrandSpec) -> bool:
+    """True if a keyword appears as a whole word once the exclude phrases are removed, none of the
+    exclude_if words appear (e.g. "Fallout" for Obsidian the studio), and, for brands with
+    require_context, at least one context word appears too."""
+    return reject_reason(text, brand) is None
 
 
 def still_matches(source: str, text: str, url: str | None, brand: BrandSpec) -> bool:
     """Would a stored mention still be collected under the brand's current rules? Mirrors the sources:
-    dev.to items come from the brand's tag and posts in the brand's own subreddit don't need the name;
-    everything else must name the brand. exclude_if always applies."""
+    dev.to items come from the brand's tag, YouTube comments from a video whose title named the brand, and
+    posts in the brand's own subreddit don't need the name; everything else must name the brand.
+    exclude_if always applies."""
     if excluded_by_context(text, brand):
         return False
-    if source == "devto":
+    if source in ("devto", "youtube"):
         return True
     if source == "reddit" and url and any(f"/r/{s.lower()}/" in url.lower() for s in brand.subreddits):
         return True
@@ -305,6 +356,7 @@ def with_retries(
     raise RuntimeError("unreachable")
 
 
+MAX_REJECTED_KEPT = 500
 MAX_PER_AUTHOR = 3  # social sources: one prolific author must not flood a brand (e.g. a plugin maker)
 
 

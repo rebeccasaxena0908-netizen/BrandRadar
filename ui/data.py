@@ -21,7 +21,7 @@ from nlp.models import EMOTIONS
 # Display names for every source. The header filter shows the core three plus any other source that
 # has mentions in the database (see source_options), so a source appears once it has data.
 SOURCES = {"hackernews": "Hacker News", "appstore": "App Store", "playstore": "Google Play",
-           "devto": "dev.to", "mastodon": "Mastodon", "reddit": "Reddit"}
+           "devto": "dev.to", "mastodon": "Mastodon", "reddit": "Reddit", "youtube": "YouTube", "news": "News"}
 CORE_SOURCES = ("hackernews", "appstore", "playstore")
 # Generic words that say nothing in a word cloud of note-app reviews (brand names are added per call).
 CLOUD_STOP_WORDS = {
@@ -39,7 +39,8 @@ CLOUD_STOP_WORDS = {
 
 def query_brands(engine: Engine) -> pd.DataFrame:
     with engine.connect() as conn:
-        return pd.read_sql(text("SELECT id, name, is_own, keywords FROM brands ORDER BY is_own DESC, name"), conn)
+        return pd.read_sql(text("SELECT id, name, is_own, keywords, brand_group, profile FROM brands "
+                                "ORDER BY brand_group, is_own DESC, name"), conn)
 
 
 def query_mentions(
@@ -67,15 +68,24 @@ def query_mentions(
     return df[columns]
 
 
-def query_sources_with_data(engine: Engine) -> list[str]:
+def query_sources_with_data(engine: Engine, brand_ids: tuple[int, ...] | None = None) -> list[str]:
+    stmt = text("SELECT DISTINCT source FROM mentions")
+    params: dict[str, Any] = {}
+    if brand_ids is not None:
+        if not brand_ids:
+            return []
+        stmt = text("SELECT DISTINCT source FROM mentions WHERE brand_id IN :brands").bindparams(
+            bindparam("brands", expanding=True))
+        params = {"brands": list(brand_ids)}
     with engine.connect() as conn:
-        return [r[0] for r in conn.execute(text("SELECT DISTINCT source FROM mentions"))]
+        return [r[0] for r in conn.execute(stmt, params)]
 
 
-def source_options(with_data: list[str]) -> dict[str, str]:
+def source_options(with_data: list[str], core: tuple[str, ...] = CORE_SOURCES) -> dict[str, str]:
     """Filter options in a stable order: core sources first, then the others that have mentions.
-    CSV imports keep their own source names (e.g. "twitter") and are shown title-cased."""
-    keys = list(CORE_SOURCES) + [s for s in SOURCES if s not in CORE_SOURCES and s in with_data]
+    CSV imports keep their own source names (e.g. "twitter") and are shown title-cased.
+    Software groups use CORE_SOURCES as core; other industries pass () and only see sources with data."""
+    keys = list(core) + [s for s in SOURCES if s not in core and s in with_data]
     keys += sorted(s for s in with_data if s not in SOURCES)
     return {k: SOURCES.get(k, k.title()) for k in keys}
 
@@ -338,5 +348,5 @@ def collector_runs() -> tuple[dict[str, Any] | None, datetime | None]:
 
 
 @st.cache_data(ttl=60, show_spinner=False)
-def sources_with_data() -> list[str]:
-    return query_sources_with_data(get_engine())
+def sources_with_data(brand_ids: tuple[int, ...] | None = None) -> list[str]:
+    return query_sources_with_data(get_engine(), brand_ids)

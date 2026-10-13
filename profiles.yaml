@@ -1,0 +1,197 @@
+# Industry profiles: what the NLP pipeline, topics and dashboard look for, per kind of product.
+# A brand picks one in brands.yaml (`profile:`); brands in the same group share a profile.
+#
+# categories   label -> zero-shot hypothesis ("This text is about {hypothesis}."). Descriptive phrases
+#              work much better than bare labels. Must include the praise and discussion labels.
+# praise / discussion   which labels mean praise and neutral talk ("praise" is never used for a
+#              negative mention: the next-best category is taken instead)
+# complaints   labels that put a mention in the complaint set (topics, priority matrix, alerts)
+# complaints_need_non_positive   true: an aspect label only counts as a complaint when the mention is
+#              not positive ("smells lovely" is about scent but not a complaint). Negative mentions
+#              always count. software keeps false so existing results stay identical.
+# request      optional label for "people asking for something new" (executive summary)
+# features     default aspects with keyword synonyms (the keyword gate in nlp/features.py); a brand's
+#              own `features` in brands.yaml replace these
+# sources      sources fetched by default for brands with this profile (a brand can override)
+# version      bump when this profile's categories or hypotheses change, then
+#              python -m nlp.pipeline --reanalyse --model-version outdated
+
+profiles:
+  software:
+    version: 1
+    categories:
+      bug: a bug, crash or error
+      feature request: a request for a new feature
+      pricing: pricing, cost or subscription
+      performance: speed or performance
+      UX/design: the user interface or design
+      support: customer support or service
+      praise: praise or a compliment
+      general discussion: a general discussion, not a complaint or praise
+    praise: praise
+    discussion: general discussion
+    complaints: [bug, performance, pricing, UX/design, support, feature request]
+    complaints_need_non_positive: false
+    request: feature request
+    features:
+      sync: [synchronization, synchronise, synchronize, across devices, between devices, other devices]
+      offline: [no internet, without internet, no connection, no wifi, no signal, airplane mode]
+      pricing: [price, cost, costly, expensive, cheap, subscription, subscribe, paywall, premium, pay, paid,
+                fees, refund, free plan, free version, free tier, per month, per year, money]
+      performance: [slow, fast, speed, lag, lagging, laggy, sluggish, freeze, frozen, loading, load time,
+                    battery, memory, ram, responsive]
+      AI: [artificial intelligence, chatgpt, gpt, llm, llms, copilot, claude, ai features]
+      search: [searching, can't find, cannot find, can not find, lookup, look up]
+      templates: [template]
+      collaboration: [collaborate, collaborating, share, sharing, team, teams, teammate, coworker, colleague,
+                      real-time, realtime, multiplayer, co-edit]
+      integrations: [integration, integrate, api, zapier, slack, google calendar, google drive, github,
+                     webhook, import, export]
+    sources: [hackernews, appstore, playstore, reddit, mastodon, devto]
+
+  beauty_skincare:
+    version: 1
+    categories:
+      skin reaction: a skin reaction such as irritation, breakouts, redness, itching or burning
+      texture: the texture or consistency, such as sticky, greasy, heavy, thick or watery
+      scent: the scent or fragrance
+      results: whether the product works or shows visible results
+      packaging: the packaging, such as the bottle, pump, tube, jar or lid
+      price/value: the price or value for money
+      authenticity: fake or counterfeit products
+      availability: availability, stock or where to buy it
+      product request: a wish for a new product, shade, size or formula
+      praise: praise or a compliment
+      general discussion: a general discussion, not a complaint or praise
+    praise: praise
+    discussion: general discussion
+    complaints: [skin reaction, texture, scent, results, packaging, price/value, authenticity, availability]
+    complaints_need_non_positive: true
+    request: product request
+    features:
+      hydration: [moisturizing, moisturising, hydrating, hydration, dry skin, dryness, moisture]
+      acne: [breakout, breakouts, pimple, pimples, acne-prone, blemish, blemishes]
+      sensitivity: [sensitive skin, irritation, irritated, redness, itchy, itching, burning, stinging, rash]
+      texture: [sticky, greasy, oily, lightweight, heavy, thick, watery, absorbs, absorbed, residue]
+      scent: [smell, smells, fragrance, fragranced, scented, perfume, perfumy]
+      sun protection: [spf, sunscreen, sun cream, sun protection, white cast, uv]
+      price: [price, expensive, cheap, affordable, worth it, value for money, overpriced, pricey]
+      packaging: [packaging, bottle, pump, tube, jar, lid, dropper, container]
+      authenticity: [fake, counterfeit, original, authentic, genuine, duplicate]
+      availability: [out of stock, sold out, availability, restock, discontinued]
+      ingredients: [ingredients, centella, cica, niacinamide, snail mucin, hyaluronic, ceramide, retinol, bha, aha,
+                    green tea]
+      lip care: [lip mask, lip balm, lip sleeping mask, lips, chapped]
+    sources: [youtube, news, reddit, mastodon]
+
+  stationery:
+    version: 1
+    categories:
+      ink/lead quality: the ink or pencil lead quality, such as faint, scratchy, dry, too hard or too soft
+      smudging: smudging, smearing, or ink bleeding through the paper
+      breakage/durability: breakage or durability, such as pencil leads, nibs, tips or erasers breaking
+      sharpening: sharpening, sharpeners, or pencils breaking while being sharpened
+      price/value: the price or value for money
+      availability: availability, stock or where to buy it
+      packaging: the packaging or box
+      product request: a wish for a new product, colour, set or size
+      praise: praise or a compliment
+      general discussion: a general discussion, not a complaint or praise
+    praise: praise
+    discussion: general discussion
+    complaints: [ink/lead quality, smudging, breakage/durability, sharpening, price/value, availability, packaging]
+    complaints_need_non_positive: true
+    request: product request
+    features:
+      ink: [ink, refill, refills, gel pen, ball pen, ballpoint, faint, dries, dried out]
+      lead: [lead, leads, graphite, hb, 2b, 4b, darkness, dark lines]
+      smudging: [smudge, smudges, smudging, smear, smears, smearing, bleed, bleeds, bleeding]
+      durability: [breaks, broke, broken, break, breaking, durable, snaps, snapped, sturdy]
+      sharpening: [sharpener, sharpeners, sharpen, sharpens, sharpening]
+      erasing: [eraser, erasers, rubber, erase, erases, erasing]
+      grip: [grip, comfortable, hold, holding]
+      price: [price, expensive, cheap, affordable, worth it, value for money, overpriced, rupees, rs]
+      packaging: [packaging, box, pack, set, kit]
+      availability: [out of stock, available, availability, shop, stationery shop]
+    sources: [youtube, news, reddit]
+
+  food_beverage:
+    version: 1
+    categories:
+      taste: the taste or flavour
+      freshness/quality: freshness or quality, such as stale, spoiled or inconsistent batches
+      packaging: the packaging, such as leaking, damaged or hard to open
+      price/value: the price, portion size or value for money
+      availability: availability, stock or where to buy it
+      health/ingredients: health or ingredients, such as sugar, additives or allergens
+      delivery: delivery, shipping or arriving late or damaged
+      product request: a wish for a new flavour, size or product
+      praise: praise or a compliment
+      general discussion: a general discussion, not a complaint or praise
+    praise: praise
+    discussion: general discussion
+    complaints: [taste, freshness/quality, packaging, price/value, availability, health/ingredients, delivery]
+    complaints_need_non_positive: true
+    request: product request
+    features:
+      taste: [taste, tastes, flavour, flavor, sweet, salty, bitter, bland]
+      freshness: [fresh, stale, expired, expiry, spoiled, rotten]
+      packaging: [packaging, pack, packet, bottle, can, leaking, sealed]
+      price: [price, expensive, cheap, affordable, worth it, value for money, overpriced]
+      ingredients: [ingredients, sugar, sugar-free, preservatives, additives, allergen, gluten, vegan, protein]
+      delivery: [delivery, delivered, shipping, courier, late]
+    sources: [youtube, news, reddit, mastodon]
+
+  fashion:
+    version: 1
+    categories:
+      fit/sizing: fit or sizing, such as too small, too big or inconsistent sizes
+      fabric/quality: fabric or build quality, such as thin, itchy, pilling or loose threads
+      colour vs photos: the colour or look being different from the photos
+      durability: durability, such as tearing, fading or shrinking after washing
+      price/value: the price or value for money
+      returns: returns, exchanges or refunds
+      delivery: delivery, shipping or arriving late or damaged
+      product request: a wish for a new style, colour or size
+      praise: praise or a compliment
+      general discussion: a general discussion, not a complaint or praise
+    praise: praise
+    discussion: general discussion
+    complaints: [fit/sizing, fabric/quality, colour vs photos, durability, price/value, returns, delivery]
+    complaints_need_non_positive: true
+    request: product request
+    features:
+      fit: [fit, fits, sizing, size chart, too small, too big, tight, loose]
+      fabric: [fabric, material, cotton, polyester, stitching, threads, pilling]
+      colour: [colour, color, faded, fading, shade, photos, pictures]
+      durability: [tear, torn, ripped, shrink, shrank, washing, wash]
+      price: [price, expensive, cheap, affordable, worth it, value for money, overpriced]
+      returns: [return, returns, exchange, refund]
+      delivery: [delivery, delivered, shipping, courier, late]
+    sources: [youtube, news, reddit, mastodon]
+
+  consumer_product:
+    version: 1
+    categories:
+      quality: the build or product quality
+      durability: durability, such as breaking or wearing out quickly
+      price/value: the price or value for money
+      packaging: the packaging
+      availability: availability, stock or where to buy it
+      customer service: customer service, warranty or support
+      product request: a wish for a new product, feature or size
+      praise: praise or a compliment
+      general discussion: a general discussion, not a complaint or praise
+    praise: praise
+    discussion: general discussion
+    complaints: [quality, durability, price/value, packaging, availability, customer service]
+    complaints_need_non_positive: true
+    request: product request
+    features:
+      quality: [quality, cheap feel, flimsy, defective, faulty]
+      durability: [breaks, broke, broken, durable, lasted, wore out]
+      price: [price, expensive, cheap, affordable, worth it, value for money, overpriced]
+      packaging: [packaging, box, damaged box]
+      availability: [out of stock, sold out, availability, restock]
+      service: [customer service, warranty, support, replacement, refund]
+    sources: [youtube, news, reddit, mastodon]

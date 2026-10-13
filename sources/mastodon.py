@@ -19,7 +19,7 @@ from typing import Any
 
 from config import settings
 from sources.base import (
-    BaseSource, BrandSpec, HttpClient, RawMention, cap_per_author, html_to_text, matches_brand, shared_client, to_utc_naive,
+    BaseSource, BrandSpec, HttpClient, RawMention, cap_per_author, html_to_text, shared_client, to_utc_naive,
 )
 
 PAGE_SIZE = 40  # Mastodon's maximum for timelines
@@ -87,7 +87,7 @@ class MastodonSource(BaseSource):
                 if status.get("language") not in ("en", None) or status["uri"] in found:
                     continue
                 text = html_to_text(status.get("content"))
-                if not text or not matches_brand(text, brand):
+                if not text or not self.accept(text, brand):
                     continue
                 found[status["uri"]] = RawMention(
                     source=self.name, external_id=status["uri"][:255], text=text, created_at=created,

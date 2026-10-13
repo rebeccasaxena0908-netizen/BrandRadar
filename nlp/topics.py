@@ -29,13 +29,15 @@ from sqlalchemy.orm import Session, sessionmaker
 
 from config import PROJECT_ROOT, settings
 from db.models import Analysis, Brand, Mention, Topic, TopicDaily
+from nlp.profiles import SOFTWARE, Profile, get_profile
 from nlp.text import clean_text
 from sources.base import split_keywords
 
 log = logging.getLogger("nlp.topics")
 
 EMBEDDING_MODEL = "sentence-transformers/all-MiniLM-L6-v2"
-COMPLAINT_CATEGORIES = ("bug", "performance", "pricing", "UX/design", "support", "feature request")
+# The software profile's complaint labels; each brand uses its own profile's (profiles.yaml).
+COMPLAINT_CATEGORIES = get_profile(SOFTWARE).complaints
 # Kept upper-case when labels are title-cased.
 ACRONYMS = {"ai": "AI", "api": "API", "ui": "UI", "ux": "UX", "ios": "iOS", "pdf": "PDF", "mcp": "MCP",
             "llm": "LLM", "llms": "LLMs", "gpt": "GPT", "url": "URL", "sso": "SSO", "ocr": "OCR"}
@@ -133,8 +135,8 @@ class BrandResult:
 # ---------------------------------------------------------------- pure helpers
 
 
-def is_complaint(sentiment: str | None, category: str | None) -> bool:
-    return sentiment == "negative" or category in COMPLAINT_CATEGORIES
+def is_complaint(sentiment: str | None, category: str | None, profile: Profile | None = None) -> bool:
+    return (profile or get_profile(SOFTWARE)).is_complaint(sentiment, category)
 
 
 def looks_english(text: str) -> bool:
@@ -342,15 +344,22 @@ def _ctfidf_words(model: Any, topic: int, n: int = 10) -> list[str]:
 # ---------------------------------------------------------------- database
 
 
-def load_complaints(session: Session, brand_id: int, excluded_sources: tuple[str, ...] = ()) -> list[Complaint]:
-    """Complaints for one brand, leaving out sources that are not user feedback (TOPIC_EXCLUDED_SOURCES)."""
+def load_complaints(
+    session: Session, brand_id: int, excluded_sources: tuple[str, ...] = (), profile: Profile | None = None
+) -> list[Complaint]:
+    """Complaints for one brand by its profile's rule, leaving out sources that are not user feedback
+    (TOPIC_EXCLUDED_SOURCES). Non-English mentions have no labels, so they never count."""
+    profile = profile or get_profile(SOFTWARE)
+    aspect = Analysis.category.in_(profile.complaints)
+    if profile.complaints_need_non_positive:
+        aspect = aspect & (Analysis.sentiment != "positive")
     rows = session.execute(
         select(Mention.id, Mention.text, Mention.created_at, Analysis.category, Analysis.topic_id)
         .join(Analysis, Analysis.mention_id == Mention.id)
         .where(
             Mention.brand_id == brand_id,
             Mention.source.not_in(excluded_sources),
-            or_(Analysis.sentiment == "negative", Analysis.category.in_(COMPLAINT_CATEGORIES)),
+            or_(Analysis.sentiment == "negative", aspect),
         )
         .order_by(Mention.id)
     )
@@ -469,7 +478,7 @@ def run_topics(
         result = BrandResult(brand=brand.name)
         results.append(result)
         with factory() as session:
-            complaints = load_complaints(session, brand.id, excluded_sources)
+            complaints = load_complaints(session, brand.id, excluded_sources, get_profile(brand.profile))
         english = [c for c in complaints if looks_english(c.text)]
         result.non_english = len(complaints) - len(english)
         complaints = english

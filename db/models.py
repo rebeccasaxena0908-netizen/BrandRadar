@@ -45,6 +45,9 @@ class Brand(Base):
     play_store_id: Mapped[Optional[str]] = mapped_column(String(255))
     # {feature: [synonyms]} from brands.yaml
     features: Mapped[Optional[dict[str, list[str]]]] = mapped_column(JSON)
+    brand_group: Mapped[str] = mapped_column(String(64), default="Default")
+    profile: Mapped[str] = mapped_column(String(32), default="consumer_product")
+    config: Mapped[Optional[dict[str, Any]]] = mapped_column(JSON)  # require_context, youtube_queries, sources
 
     # passive_deletes: the database's ON DELETE CASCADE removes children (the ORM must not blank FKs)
     mentions: Mapped[list[Mention]] = relationship(back_populates="brand", passive_deletes=True)
@@ -75,6 +78,7 @@ class Mention(Base):
     )
     created_at: Mapped[datetime] = mapped_column(DateTime)
     fetched_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
+    language: Mapped[Optional[str]] = mapped_column(String(16))  # nlp/language.py; only en/und are analysed
 
     brand: Mapped[Brand] = relationship(back_populates="mentions")
     analysis: Mapped[Optional[Analysis]] = relationship(back_populates="mention", passive_deletes=True)
@@ -198,5 +202,36 @@ class CollectorRun(Base):
     alerts_created: Mapped[int] = mapped_column(Integer, default=0)
     stage_seconds: Mapped[Optional[dict[str, float]]] = mapped_column(JSON)
     error: Mapped[Optional[str]] = mapped_column(Text)
+
+
+class YoutubeVideo(Base):
+    """A video whose title matched a brand; its comments are re-read without new search calls."""
+
+    __tablename__ = "youtube_videos"
+    __table_args__ = (UniqueConstraint("brand_id", "video_id", name="uq_youtube_videos_brand_video"),)
+
+    id: Mapped[int] = mapped_column(BigId, primary_key=True, autoincrement=True)
+    brand_id: Mapped[int] = mapped_column(Integer, ForeignKey("brands.id", ondelete="CASCADE"))
+    video_id: Mapped[str] = mapped_column(String(32))
+    title: Mapped[str] = mapped_column(String(512))
+    channel: Mapped[Optional[str]] = mapped_column(String(255))
+    published_at: Mapped[datetime] = mapped_column(DateTime)
+    first_seen_at: Mapped[datetime] = mapped_column(DateTime)
+    comments_checked_at: Mapped[Optional[datetime]] = mapped_column(DateTime)
+    comments_disabled: Mapped[bool] = mapped_column(Boolean, default=False)
+
+
+class ApiUsage(Base):
+    """Quota spent per API, bucket and day (YouTube: Pacific day)."""
+
+    __tablename__ = "api_usage"
+    __table_args__ = (UniqueConstraint("api", "bucket", "day", name="uq_api_usage_api_bucket_day"),)
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    api: Mapped[str] = mapped_column(String(32))
+    bucket: Mapped[str] = mapped_column(String(32))
+    day: Mapped[date] = mapped_column(Date)
+    used: Mapped[int] = mapped_column(Integer, default=0)
+
 
 TABLE_NAMES: tuple[str, ...] = tuple(Base.metadata.tables.keys())

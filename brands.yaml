@@ -34,6 +34,8 @@ core_features: &core_features
 
 brands:
   - name: Notion
+    group: Note apps
+    profile: software
     is_own: true
     keywords: [Notion, notion.so]
     subreddits: [Notion]
@@ -47,6 +49,8 @@ brands:
       databases: [database, db, table, tables, relation, relations, rollup, formula, linked view]
 
   - name: Obsidian
+    group: Note apps
+    profile: software
     is_own: false
     keywords: [Obsidian, obsidian.md]
     subreddits: [ObsidianMD]
@@ -63,6 +67,8 @@ brands:
       plugins: [plugin, community plugin, extension, addon, add-on, theme]
 
   - name: Evernote
+    group: Note apps
+    profile: software
     is_own: false
     keywords: [evernote]
     subreddits: [Evernote]
@@ -75,6 +81,8 @@ brands:
       web clipper: [clipper, web clip, clipping]
 
   - name: ClickUp
+    group: Note apps
+    profile: software
     is_own: false
     keywords: [clickup]
     subreddits: [clickup]
