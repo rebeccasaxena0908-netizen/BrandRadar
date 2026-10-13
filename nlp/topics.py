@@ -310,12 +310,14 @@ def _ctfidf_words(model: Any, topic: int, n: int = 10) -> list[str]:
 # ---------------------------------------------------------------- database
 
 
-def load_complaints(session: Session, brand_id: int) -> list[Complaint]:
+def load_complaints(session: Session, brand_id: int, excluded_sources: tuple[str, ...] = ()) -> list[Complaint]:
+    """Complaints for one brand, leaving out sources that are not user feedback (TOPIC_EXCLUDED_SOURCES)."""
     rows = session.execute(
         select(Mention.id, Mention.text, Mention.created_at, Analysis.category, Analysis.topic_id)
         .join(Analysis, Analysis.mention_id == Mention.id)
         .where(
             Mention.brand_id == brand_id,
+            Mention.source.not_in(excluded_sources),
             or_(Analysis.sentiment == "negative", Analysis.category.in_(COMPLAINT_CATEGORIES)),
         )
         .order_by(Mention.id)
@@ -389,8 +391,10 @@ def run_topics(
     min_size: int | None = None,
     outlier_similarity: float | None = None,
     overrides: dict[int, str] | None = None,
+    excluded_sources: tuple[str, ...] | None = None,
 ) -> list[BrandResult]:
     overrides = load_label_overrides() if overrides is None else overrides
+    excluded_sources = settings.topic_excluded_sources if excluded_sources is None else excluded_sources
     min_complaints = min_complaints or settings.topic_min_complaints
     min_size = min_size or settings.topic_min_size
     outlier_similarity = settings.topic_outlier_similarity if outlier_similarity is None else outlier_similarity
@@ -410,7 +414,7 @@ def run_topics(
         result = BrandResult(brand=brand.name)
         results.append(result)
         with factory() as session:
-            complaints = load_complaints(session, brand.id)
+            complaints = load_complaints(session, brand.id, excluded_sources)
         english = [c for c in complaints if looks_english(c.text)]
         result.non_english = len(complaints) - len(english)
         complaints = english

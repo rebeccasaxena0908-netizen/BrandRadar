@@ -136,3 +136,39 @@ def test_with_retries_gives_up() -> None:
 
     with pytest.raises(ConnectionError):
         with_retries(broken, attempts=2, sleep=lambda s: None)
+
+
+def test_still_matches_mirrors_each_source() -> None:
+    from sources.base import still_matches
+
+    brand = BrandSpec(id=1, name="Obsidian", keywords=("Obsidian",), exclude_if=("Fallout",), subreddits=("ObsidianMD",))
+    assert still_matches("devto", "My PKM setup", "https://dev.to/x", brand)  # tag-based: no name needed
+    assert not still_matches("devto", "Fallout mods", "https://dev.to/x", brand)  # exclude_if always applies
+    own = "https://www.reddit.com/r/ObsidianMD/comments/abc/x/"
+    assert still_matches("reddit", "sync broke again", own, brand)
+    assert not still_matches("reddit", "sync broke again", "https://www.reddit.com/r/productivity/comments/a/x/", brand)
+    assert still_matches("mastodon", "Moving to #Obsidian", None, brand)
+    assert not still_matches("hackernews", "an obsidian blade", None, brand)
+
+
+def test_subreddits_stored_with_prefix_stay_out_of_keywords() -> None:
+    from sources.base import split_subreddits
+
+    stored = ["Notion", "-Notion Ink", "!Ionian", "r/Notion"]
+    assert split_keywords(stored)[0] == ("Notion",)
+    assert split_subreddits(stored) == ("Notion",)
+
+
+def test_cap_per_author_keeps_the_newest_three() -> None:
+    from datetime import datetime
+
+    from sources.base import RawMention, cap_per_author
+
+    def m(i: int, author: str | None) -> RawMention:
+        return RawMention(source="devto", external_id=str(i), text="x", created_at=datetime(2026, 10, i + 1), author=author)
+
+    mentions = [m(i, "maker") for i in range(6)] + [m(10, "reader"), m(11, None), m(12, None), m(13, None), m(14, None)]
+    kept = cap_per_author(mentions)
+    assert sorted(x.external_id for x in kept if x.author == "maker") == ["3", "4", "5"]  # newest three
+    assert sum(x.author is None for x in kept) == 4  # anonymous items are never capped
+    assert any(x.author == "reader" for x in kept)

@@ -52,11 +52,13 @@ class Settings:
     topic_min_complaints: int
     topic_min_size: int
     topic_outlier_similarity: float
+    topic_excluded_sources: tuple[str, ...]
     priority_volume_threshold: int
     priority_pain_threshold: float
     priority_praise_pain_max: float
     alert_trend_ratio: float
     alert_min_mentions: int
+    mastodon_instances: tuple[str, ...]
     reddit_client_id: str
     reddit_client_secret: str
     reddit_user_agent: str
@@ -106,11 +108,13 @@ def load_settings() -> Settings:
         topic_min_complaints=_get_int("TOPIC_MIN_COMPLAINTS", 30),
         topic_min_size=_get_int("TOPIC_MIN_SIZE", 5),
         topic_outlier_similarity=_get_float("TOPIC_OUTLIER_SIMILARITY", 0.5),
+        topic_excluded_sources=_get_list("TOPIC_EXCLUDED_SOURCES", "devto"),
         priority_volume_threshold=_get_int("PRIORITY_VOLUME_THRESHOLD", 5),
         priority_pain_threshold=_get_float("PRIORITY_PAIN_THRESHOLD", 0.15),
         priority_praise_pain_max=_get_float("PRIORITY_PRAISE_PAIN_MAX", 0.02),
         alert_trend_ratio=_get_float("ALERT_TREND_RATIO", 2.0),
         alert_min_mentions=_get_int("ALERT_MIN_MENTIONS", 5),
+        mastodon_instances=_get_list("MASTODON_INSTANCES", "mastodon.social,fosstodon.org,hachyderm.io"),
         reddit_client_id=os.getenv("REDDIT_CLIENT_ID", ""),
         reddit_client_secret=os.getenv("REDDIT_CLIENT_SECRET", ""),
         reddit_user_agent=os.getenv("REDDIT_USER_AGENT", "brand-radar/0.1"),

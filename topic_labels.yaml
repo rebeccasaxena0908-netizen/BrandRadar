@@ -1,22 +1,24 @@
 # Manual topic labels. `python -m nlp.topics` keeps these instead of the generated label.
-# Topic ids are stable across re-runs, so an override sticks to the same complaint theme.
 # Find ids with:  python -m nlp.topics   (each topic is printed as "#id label [category]")
 #
-# Each label below was chosen after reading 8 of the topic's mentions (2026-10-13).
+# Caution: topic ids follow their members across re-clustering, but when new data arrives the members
+# of a topic can shift, so an id's theme can drift. After a big data change, re-read each topic's
+# mentions and re-map these (planned: overrides that follow their example mentions automatically).
+#
+# Re-mapped 2026-10-13 after Step 8 (dev.to + Mastodon) by reading 5 mentions of each topic.
 overrides:
-  # Evernote — was "Apple Notes": $99 -> $250/yr, forced video ads, long-time users leaving
-  42: Price Rises Driving Switch
-  # Notion — was "Workspace Easy Journal": mostly praise for organising/journaling, not complaints
+  # Notion — organising/journaling praise (not complaints)
   31: Praise for Organising
-  # Notion — was "Useful Organizing Notes": HN talk comparing Notion, clones, "least bad wiki"
-  33: Comparisons and Clones
-  # Notion — was "Pay AI Mobile": paywall after setup, AI usage limits, trial nag screens
+  # Notion — comparisons with other tools plus doubts about its future and its Android app
+  33: Comparisons and Doubts
+  # Notion — paywall after setup, AI usage limits, trial nag screens
   38: Paywall and AI Limits
-  # Notion — was "Apk Help Ful": one-line praise, mostly from students
-  39: Short Student Praise
-  # Obsidian — was "Jumps Cursor": text selection, copy and cursor jumps on mobile
-  51: Buggy Mobile Text Editing
-  # Obsidian — was "Vault Enterprise Company": HN plugin ideas and side projects
-  53: Plugin Ideas and Projects
-  # Obsidian — was "Building Clone God": HN posts about Obsidian clones and web ports
-  54: Clones and Web Ports
+  # Evernote — long-time users quitting over decline, glitches and billing (was "Price Rises Driving Switch")
+  42: Long-time Users Leaving
+  # Evernote — $149 -> $249 renewals, "+50% on a subscription", switching to Joplin (theme moved here from #42)
+  59: Price Rises Driving Switch
+  # Obsidian — text selection, copy and cursor jumps on mobile (theme moved here from #51)
+  64: Buggy Mobile Text Editing
+  # Obsidian — add-ons and alternatives: Web Clipper, Org Mode, PlantUML (was "Clones and Web Ports")
+  54: Tools and Alternatives
+  # Dropped: #39 Short Student Praise and #53 Plugin Ideas and Projects (those topics no longer exist)

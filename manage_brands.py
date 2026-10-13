@@ -11,6 +11,7 @@
 from __future__ import annotations
 
 import argparse
+import re
 import sys
 from collections.abc import Sequence
 from dataclasses import dataclass, field
@@ -23,7 +24,7 @@ from sqlalchemy.orm import Session
 
 from config import PROJECT_ROOT
 from db.models import Brand, Mention
-from sources.base import KEYWORD_SOURCES, BrandSpec, matches_brand
+from sources.base import KEYWORD_SOURCES, BrandSpec, still_matches
 
 DEFAULT_FILE = PROJECT_ROOT / "brands.yaml"
 
@@ -35,12 +36,14 @@ class BrandEntry:
     keywords: list[str] = field(default_factory=list)
     exclude: list[str] = field(default_factory=list)
     exclude_if: list[str] = field(default_factory=list)
+    subreddits: list[str] = field(default_factory=list)  # Reddit source: the brand's own communities
     app_store_id: str | None = None
     play_store_id: str | None = None
     features: dict[str, list[str]] = field(default_factory=dict)  # feature -> synonyms
 
     def stored_keywords(self) -> list[str]:
-        return self.keywords + [f"-{e}" for e in self.exclude] + [f"!{e}" for e in self.exclude_if]
+        return (self.keywords + [f"-{e}" for e in self.exclude] + [f"!{e}" for e in self.exclude_if]
+                + [f"r/{s}" for s in self.subreddits])
 
 
 def _str_list(value: Any, what: str) -> list[str]:
@@ -79,13 +82,17 @@ def load_yaml(path: Path) -> list[BrandEntry]:
             keywords=_str_list(raw.get("keywords"), f"{name}.keywords"),
             exclude=_str_list(raw.get("exclude"), f"{name}.exclude"),
             exclude_if=_str_list(raw.get("exclude_if"), f"{name}.exclude_if"),
+            subreddits=[s.removeprefix("r/") for s in _str_list(raw.get("subreddits"), f"{name}.subreddits")],
             app_store_id=str(raw["app_store_id"]) if raw.get("app_store_id") else None,
             play_store_id=str(raw["play_store_id"]) if raw.get("play_store_id") else None,
             features=_features(raw.get("features"), name),
         )
         if not entry.keywords:
             raise ValueError(f"{name}: needs at least one keyword")
-        if any(k.startswith(("-", "!")) for k in entry.keywords):
+        bad = [s for s in entry.subreddits if not re.fullmatch(r"[A-Za-z0-9_]{2,21}", s)]
+        if bad:
+            raise ValueError(f"{name}: invalid subreddit name(s): {', '.join(bad)}")
+        if any(k.startswith(("-", "!", "r/")) for k in entry.keywords):
             raise ValueError(f"{name}: put exclusions under 'exclude' / 'exclude_if', not '-keyword' or '!keyword'")
         entries.append(entry)
 
@@ -139,7 +146,7 @@ def recheck_mentions(session: Session, apply: bool = False) -> list[tuple[str, M
     for brand in session.scalars(select(Brand)):
         spec = BrandSpec.from_model(brand)
         query = select(Mention).where(Mention.brand_id == brand.id, Mention.source.in_(KEYWORD_SOURCES))
-        stale += [(brand.name, m) for m in session.scalars(query) if not matches_brand(m.text, spec)]
+        stale += [(brand.name, m) for m in session.scalars(query) if not still_matches(m.source, m.text, m.url, spec)]
     if apply:
         for _, mention in stale:
             session.delete(mention)

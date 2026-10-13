@@ -6,6 +6,8 @@
 # exclude   Phrases removed from the text before matching, using the same case rule, e.g.
 #           "Obsidian Entertainment" so the game studio doesn't count as Obsidian.
 #           Stored in brands.keywords with a leading "-".
+# subreddits  The brand's own subreddits (Reddit source, only used with Reddit API credentials): their
+#           posts and top-level comments count without naming the brand. Stored in brands.keywords as "r/Name".
 # exclude_if  Context words that drop the whole mention when present (same case rule), e.g. "Fallout"
 #           for Obsidian the game studio. Stored in brands.keywords with a leading "!".
 # app_store_id / play_store_id   Verified live on 2026-10-12 (iTunes lookup API / google-play-scraper).
@@ -34,7 +36,9 @@ brands:
   - name: Notion
     is_own: true
     keywords: [Notion, notion.so]
+    subreddits: [Notion]
     exclude: [Notion Ink, Notion Capital, Notion of]   # "Notion of …" at a sentence start is the word, not the app
+    exclude_if: [Ionian, Colophon, Klaros]   # Notion the ancient Greek city (#Notion travel posts on Mastodon)
     app_store_id: "1232780281"      # Notion: Notes, Tasks, AI — Notion Labs, Incorporated
     play_store_id: notion.id        # Notion: AI Workspace — Notion Labs, Inc.
     features:
@@ -45,6 +49,7 @@ brands:
   - name: Obsidian
     is_own: false
     keywords: [Obsidian, obsidian.md]
+    subreddits: [ObsidianMD]
     exclude: [Obsidian Entertainment, Obsidian Systems, Obsidian Security, Obsidian's games, Obsidian game,
               Obsidian games, Obsidian's game, Obsidian studio, Obsidian Software]
     # the game studio: drop any mention that also names one of its games
@@ -60,6 +65,7 @@ brands:
   - name: Evernote
     is_own: false
     keywords: [evernote]
+    subreddits: [Evernote]
     exclude: []
     app_store_id: "281796108"       # Evernote: AI Notes & Notebook — Evernote Corporation
     play_store_id: com.evernote     # Evernote - Note Organizer — Evernote by Bending Spoons
@@ -71,6 +77,7 @@ brands:
   - name: ClickUp
     is_own: false
     keywords: [clickup]
+    subreddits: [clickup]
     exclude: []
     app_store_id: "1535098836"                  # ClickUp: Tasks, Chat, Docs, AI — Mango Technologies, Inc.
     play_store_id: co.mangotechnologies.clickup # ClickUp: Tasks, Chat, Docs, AI — ClickUp

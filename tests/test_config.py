@@ -10,9 +10,9 @@ ENV_VARS = (
     "FETCH_SINCE_DAYS", "MAX_ITEMS_PER_SOURCE", "APPSTORE_COUNTRIES", "PLAYSTORE_LANG",
     "PLAYSTORE_COUNTRY", "HTTP_TIMEOUT", "HTTP_RETRIES", "HTTP_MIN_INTERVAL", "HTTP_USER_AGENT",
     "NLP_BATCH_SIZE", "NLP_MAX_TOKENS", "NLP_ZERO_SHOT_MAX_TOKENS", "NLP_DEVICE", "FEATURE_THRESHOLD",
-    "TOPIC_MIN_COMPLAINTS", "TOPIC_MIN_SIZE", "TOPIC_OUTLIER_SIMILARITY",
+    "TOPIC_MIN_COMPLAINTS", "TOPIC_MIN_SIZE", "TOPIC_OUTLIER_SIMILARITY", "TOPIC_EXCLUDED_SOURCES",
     "PRIORITY_VOLUME_THRESHOLD", "PRIORITY_PAIN_THRESHOLD", "PRIORITY_PRAISE_PAIN_MAX",
-    "REDDIT_CLIENT_ID", "REDDIT_CLIENT_SECRET", "REDDIT_USER_AGENT",
+    "MASTODON_INSTANCES", "REDDIT_CLIENT_ID", "REDDIT_CLIENT_SECRET", "REDDIT_USER_AGENT",
 )
 
 
@@ -34,6 +34,8 @@ def test_defaults(clean_env: pytest.MonkeyPatch) -> None:
     assert s.alert_min_mentions == 5
     assert s.reddit_enabled is False
     assert s.appstore_countries == ("us", "in", "gb", "ca", "au")
+    assert s.mastodon_instances == ("mastodon.social", "fosstodon.org", "hachyderm.io")
+    assert s.topic_excluded_sources == ("devto",)
     assert s.max_items_per_source == 500
     assert s.nlp_device == "auto"
     assert s.feature_threshold == 0.5

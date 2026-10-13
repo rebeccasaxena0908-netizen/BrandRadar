@@ -245,3 +245,11 @@ def test_dashboard_never_imports_the_models() -> None:
     code = "import sys, ui.data, ui.components; print('torch' in sys.modules or 'transformers' in sys.modules)"
     out = subprocess.run([sys.executable, "-c", code], capture_output=True, text=True, check=True)
     assert out.stdout.strip() == "False"
+
+
+def test_source_options_show_core_sources_plus_those_with_data() -> None:
+    assert list(data.source_options([])) == ["hackernews", "appstore", "playstore"]
+    opts = data.source_options(["playstore", "mastodon", "devto", "twitter"])
+    assert list(opts) == ["hackernews", "appstore", "playstore", "devto", "mastodon", "twitter"]
+    assert opts["devto"] == "dev.to" and opts["twitter"] == "Twitter"  # CSV sources get a readable name
+    assert "reddit" not in opts  # no Reddit data yet -> no empty pill

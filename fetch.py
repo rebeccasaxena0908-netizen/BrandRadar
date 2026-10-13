@@ -23,7 +23,9 @@ from db.models import Brand, FetchRun, Mention
 from sources.appstore import AppStoreSource
 from sources.base import BrandSpec, RawMention, Source, clip, utc_now
 from sources.csv_import import CsvSource
+from sources.devto import DevtoSource
 from sources.hackernews import HackerNewsSource
+from sources.mastodon import MastodonSource
 from sources.playstore import PlayStoreSource
 from sources.reddit import RedditSource
 
@@ -34,6 +36,8 @@ SOURCE_FACTORIES: dict[str, Callable[[], Source]] = {
     "appstore": AppStoreSource,
     "playstore": PlayStoreSource,
     "reddit": RedditSource,
+    "devto": DevtoSource,
+    "mastodon": MastodonSource,
 }
 LOOKUP_CHUNK = 500
 MAX_ERROR_LENGTH = 10_000

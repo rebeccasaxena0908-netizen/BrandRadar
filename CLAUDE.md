@@ -91,6 +91,15 @@ python tools/screenshot.py --url http://localhost:8501 --name stepN --motion   #
 - Demo data lives in `brand_radar_demo` (`BRAND_RADAR_DEMO=1` switches `config`); never write demo data
   to the real database, and the collector refuses demo mode.
 - Brand matching: `exclude` phrases are removed before matching; `exclude_if` words drop the mention.
+  `brands.keywords` prefixes: `-` exclude, `!` exclude_if, `r/` brand subreddit. `still_matches()` in
+  `sources/base.py` is the single rule for "would this stored mention still be collected" (dev.to items
+  and own-subreddit Reddit posts don't need the brand name); keep it in step with the sources.
+- Social sources: Reddit (PRAW, optional, posts + top-level comments + brand subreddits), Mastodon
+  (public hashtag timelines, English, opted-in only), dev.to (brand tag). dev.to is in
+  `TOPIC_EXCLUDED_SOURCES`: makers' self-promotion polluted complaint topics and caused a false spike
+  alert. Social sources cap 3 mentions per author per brand per fetch (`cap_per_author`).
+- Topic ids follow members but themes drift when data changes; re-map `topic_labels.yaml` after big
+  data changes (sticky overrides that follow their example mentions are a planned follow-up).
 - This machine is an 8 GB M2: MPS memory is shared with the system. Keep zero-shot input short
   (`NLP_ZERO_SHOT_MAX_TOKENS`), batches small, and free MPS memory between batches.
   bart-large-mnli zero-shot is ~95% of the runtime (~1 s per mention).

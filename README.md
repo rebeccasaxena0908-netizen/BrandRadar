@@ -1,7 +1,7 @@
 # Brand Radar
 
 **Brand sentiment and competitor radar.** Brand Radar collects public chatter about a product and its
-competitors from Hacker News, the App Store and Google Play. It analyses that chatter with local
+competitors from Hacker News, the App Store, Google Play, Mastodon and dev.to (Reddit optional). It analyses that chatter with local
 transformer models (sentiment, emotion, category, feature) and clusters the complaints into topics.
 Each topic gets a priority score, and the results appear on a live Streamlit dashboard in a
 "Blush glass" design. Everything is stored in MySQL (MariaDB in XAMPP).
@@ -36,7 +36,7 @@ It tracks Notion against Obsidian, Evernote and ClickUp out of the box; brands a
 |---|---|
 | Language | Python 3.11 |
 | Storage | MySQL / MariaDB (XAMPP), SQLAlchemy 2, PyMySQL |
-| Sources | Algolia HN Search + Firebase, iTunes RSS reviews feed, `google-play-scraper`, optional PRAW (Reddit) |
+| Sources | Algolia HN Search + Firebase, iTunes RSS reviews feed, `google-play-scraper`, Mastodon and dev.to public APIs, optional PRAW (Reddit) |
 | NLP | PyTorch, Hugging Face Transformers, sentence-transformers, BERTopic (UMAP + HDBSCAN) |
 | Scheduling | APScheduler |
 | Dashboard | Streamlit, Plotly, `wordcloud` |
@@ -48,11 +48,14 @@ It tracks Notion against Obsidian, Evernote and ClickUp out of the box; brands a
  Sources                    Collector  (every 6 h, one cycle at a time)            MySQL                 Dashboard
  ───────                    ───────────────────────────────────────────            ─────                 ─────────
  Hacker News  ──┐   1 fetch      new mentions since the last success, deduped ──►  mentions, fetch_runs
- App Store    ──┼─► 2 NLP*       sentiment · emotion · category · feature    ──►  analysis              Streamlit
- Google Play  ──┤   3 topics*    BERTopic per brand, stable topic ids        ──►  topics, topic_daily ──► reads only,
- Reddit (opt) ──┤   4 priority   volume × pain, quadrants, spike alerts      ──►  topics, alerts        cached 60 s
- CSV import   ──┘                cycle record                                ──►  collector_runs
+ App Store    ──┤
+ Google Play  ──┼─► 2 NLP*       sentiment · emotion · category · feature    ──►  analysis              Streamlit
+ Mastodon     ──┤   3 topics*    BERTopic per brand on complaints**          ──►  topics, topic_daily ──► reads only,
+ dev.to       ──┤   4 priority   volume × pain, quadrants, spike alerts      ──►  topics, alerts        cached 60 s
+ Reddit (opt) ──┤                cycle record                                ──►  collector_runs
+ CSV import   ──┘
                     * runs in a short-lived child process, so the models' memory is freed after each cycle
+                    ** dev.to is left out of complaint topics, the matrix and alerts (TOPIC_EXCLUDED_SOURCES)
 ```
 
 The collector and the dashboard are separate processes. The dashboard only reads MySQL; it never calls an
@@ -139,8 +142,42 @@ write to `DB_NAME`, and the collector refuses to run in demo mode. Re-running `s
 | Hacker News | Algolia keyword search (stories and comments) plus Firebase. Free and reliable. Common words like "notion" need case-sensitive matching and exclude lists (`brands.yaml`). |
 | App Store | The public reviews feed only returns **recent** reviews (up to ~500 per country); we read the US, India, the UK, Canada and Australia. |
 | Google Play | `google-play-scraper` is unofficial and can break when Google changes its pages; failures are logged, not fatal. English, US store. |
-| Reddit | **Optional.** Reddit stopped self-service API access, closes new access requests on 31 Oct 2026 and plans to end remaining access in March 2027. Skipped cleanly without credentials. |
+| Reddit | **Optional, off by default.** Posts and top-level comments that name the brand, plus the brand's own subreddits. Needs approved API credentials; see [Enabling Reddit](#enabling-reddit). Skipped cleanly without them. |
+| Mastodon | Public hashtag timelines (#notion, #obsidian…) on mastodon.social, fosstodon.org and hachyderm.io (`MASTODON_INSTANCES`), no login. English posts only; people who opted out of search or discovery, bots, boosts and non-public posts are skipped; the post must still name the brand. Full-text search needs a login, so hashtags are the open route. About 40 mentions a month, almost all Notion and Obsidian. |
+| dev.to | Articles tagged with the brand plus their top-level comments, via the public Forem API (no key). Mostly makers writing about their own tools, so it feeds sentiment, the feature radar and word clouds but is **left out of complaint topics, the matrix and alerts** (`TOPIC_EXCLUDED_SOURCES`). At most 3 items per author per brand and run. |
 | CSV import | Any other source (e.g. exported social posts), via `fetch.py --csv`. |
+
+## Enabling Reddit
+
+The Reddit source is built and tested, but stays off until you add API credentials. Getting them is
+no longer self-service:
+
+1. **Read Reddit's rules first:** the [Responsible Builder Policy](https://support.reddithelp.com/hc/en-us/articles/42728983564564-Responsible-Builder-Policy),
+   the [Reddit Data API Wiki](https://support.reddithelp.com/hc/en-us/articles/16160319875092-Reddit-Data-API-Wiki)
+   and [Developer Platform & Accessing Reddit Data](https://support.reddithelp.com/hc/en-us/articles/14945211791892-Developer-Platform-Accessing-Reddit-Data).
+   Since the policy took effect (November 2025) every app needs explicit approval before it can use the API.
+   Using Reddit data for a business needs separate written approval.
+2. **Request access** with Reddit's [developer support form](https://support.reddithelp.com/hc/en-us/requests/new?ticket_form_id=21879292693140).
+   Describe Brand Radar honestly: read-only, low volume (a few hundred requests every 6 hours), public posts
+   and comments about specific products, analysed locally, never redistributed. Reddit asks developers to use
+   its Developer Platform (Devvit) where possible; this form is for tools Devvit can't support, such as this
+   external analysis. Approval is not guaranteed, and replies can take a while.
+3. **Mind the deadlines** (as reported by the press, e.g.
+   [TechRepublic](https://www.techrepublic.com/article/news-reddit-rss-public-api-shutdown/) and
+   [Decrypt](https://decrypt.co/379892/reddit-killing-rss-feeds-public-api-access-ai-scrapers)):
+   Reddit stops accepting new public API requests on **31 October 2026**, and remaining public Data API
+   access is due to end in **March 2027**. After that, this source will stop working even with credentials.
+4. **Once approved**, fill in these values in `.env` and restart the collector:
+
+   ```ini
+   REDDIT_CLIENT_ID=your-client-id
+   REDDIT_CLIENT_SECRET=your-client-secret
+   REDDIT_USER_AGENT=python:brand-radar:0.1 (by u/your-reddit-username)
+   ```
+
+   `python check_setup.py` then shows Reddit as configured, and the next collector cycle fetches it. Which
+   subreddits count as a brand's own is set by `subreddits` in `brands.yaml`
+   (`Notion`, `ObsidianMD`, `Evernote`, `clickup`).
 
 ## Model quality (measured on the real data)
 
@@ -159,6 +196,12 @@ Models: `cardiffnlp/twitter-roberta-base-sentiment-latest`, `j-hartmann/emotion-
 ## Known limitations
 
 - **English only.** Non-English reviews get analysed as English; very long non-English texts are kept out of topics.
+- **Topic themes can drift.** Topic ids follow their mentions across re-clustering, but with small data
+  the clusters reshape when new mentions arrive, so a manual label in `topic_labels.yaml` can end up on a
+  changed theme. Re-read and re-map them after a big data change (labels that follow their example
+  mentions are planned).
+- **Few free social sources.** Evernote and ClickUp get almost nothing from Mastodon and dev.to; Reddit
+  (optional, closing in 2027) was the main social source for them.
 - **One feature per mention.** A review about sync *and* pricing gets one feature; about 15% of mentions name several.
 - **Keyword-based topic labels.** Some are clunky; fix them in `topic_labels.yaml` (labels written by an LLM are a planned extra).
 - **Some praise lands in the complaint set** (positive reviews the model put in a complaint category). These

@@ -58,8 +58,9 @@ def header(brands: pd.DataFrame) -> tuple[pd.Series, list[pd.Series], date, date
         picked = date_col.date_input(
             "Date range", value=(today - timedelta(days=DEFAULT_DAYS - 1), today), max_value=today, format="DD/MM/YYYY"
         )
+        options = data.source_options(data.sources_with_data())
         source_labels = source_col.pills(
-            "Sources", list(data.SOURCES.values()), selection_mode="multi", default=list(data.SOURCES.values()),
+            "Sources", list(options.values()), selection_mode="multi", default=list(options.values()),
             key="sources",
         )
     # date_input returns a 1-tuple while the user is still picking the end date
@@ -67,7 +68,7 @@ def header(brands: pd.DataFrame) -> tuple[pd.Series, list[pd.Series], date, date
         start, end = (picked[0], picked[-1]) if picked else (today - timedelta(days=DEFAULT_DAYS - 1), today)
     else:
         start = end = picked
-    sources = tuple(k for k, v in data.SOURCES.items() if v in (source_labels or []))
+    sources = tuple(k for k, v in options.items() if v in (source_labels or []))
     brand = brands.loc[brands["name"] == brand_name].iloc[0]
     comps = [brands.loc[brands["name"] == n].iloc[0] for n in competitors]
     return brand, comps, start, end, sources
@@ -512,7 +513,7 @@ def main() -> None:
     with right:
         executive_summary(brand, comps, matrix, table, current, previous, days)
     st.markdown(f'<div class="br-footnote">{start:%d %b} – {end:%d %b %Y} · '
-                f'{", ".join(data.SOURCES[s] for s in sources)} · data refreshes every 60 s</div>',
+                f'{", ".join(data.SOURCES.get(s, s.title()) for s in sources)} · data refreshes every 60 s</div>',
                 unsafe_allow_html=True)
 
 

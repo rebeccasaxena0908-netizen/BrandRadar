@@ -18,7 +18,11 @@ from sqlalchemy import Engine, bindparam, text
 
 from nlp.models import EMOTIONS
 
-SOURCES = {"hackernews": "Hacker News", "appstore": "App Store", "playstore": "Google Play"}
+# Display names for every source. The header filter shows the core three plus any other source that
+# has mentions in the database (see source_options), so a source appears once it has data.
+SOURCES = {"hackernews": "Hacker News", "appstore": "App Store", "playstore": "Google Play",
+           "devto": "dev.to", "mastodon": "Mastodon", "reddit": "Reddit"}
+CORE_SOURCES = ("hackernews", "appstore", "playstore")
 # Generic words that say nothing in a word cloud of note-app reviews (brand names are added per call).
 CLOUD_STOP_WORDS = {
     "app", "apps", "application", "use", "using", "used", "note", "notes", "just", "like", "really",
@@ -61,6 +65,19 @@ def query_mentions(
     df["created_at"] = pd.to_datetime(df["created_at"])
     df["emotion_scores"] = df["emotion_scores"].map(_parse_json)
     return df[columns]
+
+
+def query_sources_with_data(engine: Engine) -> list[str]:
+    with engine.connect() as conn:
+        return [r[0] for r in conn.execute(text("SELECT DISTINCT source FROM mentions"))]
+
+
+def source_options(with_data: list[str]) -> dict[str, str]:
+    """Filter options in a stable order: core sources first, then the others that have mentions.
+    CSV imports keep their own source names (e.g. "twitter") and are shown title-cased."""
+    keys = list(CORE_SOURCES) + [s for s in SOURCES if s not in CORE_SOURCES and s in with_data]
+    keys += sorted(s for s in with_data if s not in SOURCES)
+    return {k: SOURCES.get(k, k.title()) for k in keys}
 
 
 def query_open_alerts(engine: Engine, brand_id: int) -> int:
@@ -318,3 +335,8 @@ def feature_mentions(brand_ids: tuple[int, ...]) -> pd.DataFrame:
 @st.cache_data(ttl=30, show_spinner=False)
 def collector_runs() -> tuple[dict[str, Any] | None, datetime | None]:
     return query_collector_runs(get_engine())
+
+
+@st.cache_data(ttl=60, show_spinner=False)
+def sources_with_data() -> list[str]:
+    return query_sources_with_data(get_engine())

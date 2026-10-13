@@ -259,3 +259,22 @@ def test_overrides_are_respected(factory: sessionmaker[Session], notion: BrandSp
     with factory() as s:
         assert s.get(Topic, some_id).label == "My Manual Label"
         assert s.scalar(select(func.count()).select_from(Topic)) == 3  # still no duplicates
+
+
+def test_excluded_sources_stay_out_of_topics(factory: sessionmaker[Session], notion: BrandSpec) -> None:
+    add_complaints(factory, notion, all_texts())
+    with factory() as s:  # makers' posts from dev.to that zero-shot labelled as complaints
+        promo = []
+        for i in range(12):
+            m = Mention(brand_id=notion.id, source="devto", external_id=f"d{i}", text=f"sync plugin release notes {i}",
+                        created_at=datetime(2026, 10, 1))
+            s.add(m)
+            s.flush()
+            s.add(Analysis(mention_id=m.id, sentiment="neutral", sentiment_score=0.0, category="support"))
+            promo.append(m.id)
+        s.commit()
+    [result] = run_topics(factory, FakeEmbedder(), brands=["Notion"], min_complaints=10, min_size=10,
+                          outlier_similarity=0.5, overrides={}, excluded_sources=("devto",))
+    assert result.complaints == 54  # the 12 dev.to posts were not counted
+    topics = topic_of(factory)
+    assert all(topics[p] is None for p in promo)

@@ -138,3 +138,11 @@ def test_recheck_mentions_finds_and_deletes_stale(tmp_path: Path) -> None:
         s.commit()
         assert sorted(m.external_id for m in s.query(Mention)) == ["1", "3"]
         assert s.query(Analysis).count() == 2  # the stale mention's analysis row went with it
+
+
+def test_subreddits_stored_with_r_prefix(tmp_path: Path) -> None:
+    text = "brands:\n  - name: A\n    is_own: true\n    keywords: [Aa]\n    subreddits: [r/AaApp, AaHelp]\n"
+    assert load_yaml(write(tmp_path, text))[0].stored_keywords() == ["Aa", "r/AaApp", "r/AaHelp"]
+    bad = "brands:\n  - name: A\n    is_own: true\n    keywords: [Aa]\n    subreddits: [not a sub]\n"
+    with pytest.raises(ValueError, match="invalid subreddit"):
+        load_yaml(write(tmp_path, bad))

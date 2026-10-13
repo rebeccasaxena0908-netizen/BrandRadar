@@ -27,8 +27,9 @@ if TYPE_CHECKING:
 log = logging.getLogger(__name__)
 
 
-# Sources found by keyword search (as opposed to per-app reviews), so brand matching applies to them.
-KEYWORD_SOURCES = ("hackernews", "reddit")
+# Sources found by keyword, tag or community (as opposed to per-app reviews), so brand rules apply to
+# them; see still_matches.
+KEYWORD_SOURCES = ("hackernews", "reddit", "mastodon", "devto")
 
 # ---------------------------------------------------------------- data types
 
@@ -43,6 +44,7 @@ class BrandSpec:
     keywords: tuple[str, ...] = ()
     exclude: tuple[str, ...] = ()
     exclude_if: tuple[str, ...] = ()
+    subreddits: tuple[str, ...] = ()  # the brand's own subreddits (Reddit source)
     app_store_id: str | None = None
     play_store_id: str | None = None
     features: tuple[str, ...] = ()
@@ -57,6 +59,7 @@ class BrandSpec:
             keywords=include,
             exclude=exclude,
             exclude_if=exclude_if,
+            subreddits=split_subreddits(brand.keywords or []),
             app_store_id=brand.app_store_id,
             play_store_id=brand.play_store_id,
             features=tuple(brand.features or []),
@@ -146,10 +149,15 @@ def html_to_text(html: str | None) -> str:
 def split_keywords(stored: list[str]) -> tuple[tuple[str, ...], tuple[str, ...], tuple[str, ...]]:
     """`brands.keywords` holds search keywords, exclude phrases prefixed with '-' (removed before
     matching) and exclude_if context words prefixed with '!' (drop the whole mention)."""
-    include = tuple(k for k in stored if not k.startswith(("-", "!")))
+    include = tuple(k for k in stored if not k.startswith(("-", "!", "r/")))
     exclude = tuple(k[1:] for k in stored if k.startswith("-"))
     exclude_if = tuple(k[1:] for k in stored if k.startswith("!"))
     return include, exclude, exclude_if
+
+
+def split_subreddits(stored: list[str]) -> tuple[str, ...]:
+    """Brand subreddits are stored in `brands.keywords` as 'r/Name'."""
+    return tuple(k[2:] for k in stored if k.startswith("r/"))
 
 
 def _phrase_pattern(phrase: str) -> re.Pattern[str]:
@@ -158,14 +166,32 @@ def _phrase_pattern(phrase: str) -> re.Pattern[str]:
     return re.compile(rf"(?<!\w){re.escape(phrase)}(?!\w)", flags)
 
 
+def excluded_by_context(text: str, brand: BrandSpec) -> bool:
+    """True if an exclude_if context word appears (e.g. "Fallout" for Obsidian the game studio)."""
+    return any(_phrase_pattern(word).search(text) for word in brand.exclude_if)
+
+
 def matches_brand(text: str, brand: BrandSpec) -> bool:
     """True if a keyword appears as a whole word once the exclude phrases are removed,
     and none of the exclude_if context words appear (e.g. "Fallout" for Obsidian the studio)."""
-    if any(_phrase_pattern(word).search(text) for word in brand.exclude_if):
+    if excluded_by_context(text, brand):
         return False
     for phrase in brand.exclude:
         text = _phrase_pattern(phrase).sub(" ", text)
     return any(_phrase_pattern(k).search(text) for k in brand.keywords)
+
+
+def still_matches(source: str, text: str, url: str | None, brand: BrandSpec) -> bool:
+    """Would a stored mention still be collected under the brand's current rules? Mirrors the sources:
+    dev.to items come from the brand's tag and posts in the brand's own subreddit don't need the name;
+    everything else must name the brand. exclude_if always applies."""
+    if excluded_by_context(text, brand):
+        return False
+    if source == "devto":
+        return True
+    if source == "reddit" and url and any(f"/r/{s.lower()}/" in url.lower() for s in brand.subreddits):
+        return True
+    return matches_brand(text, brand)
 
 
 # ---------------------------------------------------------------- polite HTTP
@@ -277,6 +303,22 @@ def with_retries(
             log.info("retry %d/%d after %s: %s", attempt, attempts - 1, type(exc).__name__, exc)
             sleep(delay)
     raise RuntimeError("unreachable")
+
+
+MAX_PER_AUTHOR = 3  # social sources: one prolific author must not flood a brand (e.g. a plugin maker)
+
+
+def cap_per_author(mentions: list[RawMention], limit: int = MAX_PER_AUTHOR) -> list[RawMention]:
+    """Keep at most `limit` mentions per author (the newest); mentions without an author are kept."""
+    kept: list[RawMention] = []
+    counts: dict[str, int] = {}
+    for m in sorted(mentions, key=lambda m: m.created_at, reverse=True):
+        if m.author:
+            counts[m.author] = counts.get(m.author, 0) + 1
+            if counts[m.author] > limit:
+                continue
+        kept.append(m)
+    return kept
 
 
 def clip(value: str | None, length: int) -> str | None:
