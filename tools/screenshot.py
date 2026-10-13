@@ -94,6 +94,8 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--name", default="dashboard")
     parser.add_argument("--only", choices=sorted(VIEWPORTS), help="capture one viewport only")
     parser.add_argument("--group", help="brand group to show (default: the dashboard's first group)")
+    parser.add_argument("--reduced-motion", action="store_true",
+                        help="emulate prefers-reduced-motion: the background holds still, so captures can be diffed")
     parser.add_argument("--motion", action="store_true", help="also measure background motion (desktop)")
     parser.add_argument(
         "--browser", default="chrome",
@@ -110,7 +112,8 @@ def main(argv: list[str] | None = None) -> int:
         for label, (width, height, scale) in VIEWPORTS.items():
             if args.only and label != args.only:
                 continue
-            page = browser.new_page(viewport={"width": width, "height": height}, device_scale_factor=scale)
+            page = browser.new_page(viewport={"width": width, "height": height}, device_scale_factor=scale,
+                                    reduced_motion="reduce" if args.reduced_motion else "no-preference")
             started = time.perf_counter()
             page.goto(args.url, wait_until="networkidle")
             wait_until_rendered(page)

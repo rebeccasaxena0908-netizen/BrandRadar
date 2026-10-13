@@ -51,6 +51,7 @@ scripts/start.sh                                                    # collector 
 python seed_demo.py && BRAND_RADAR_DEMO=1 streamlit run app.py      # demo database + dashboard on it
 python tools/screenshot.py --url http://localhost:8501 --name stepN --motion   # 1440px + 390px captures
 python tools/screenshot.py --group Stationery --name industry-stationery     # another brand group
+python tools/screenshot.py --reduced-motion ...                               # still background, for diffing
 ```
 
 ## Layout notes
@@ -83,6 +84,7 @@ python tools/screenshot.py --group Stationery --name industry-stationery     # a
   Set chart backgrounds explicitly in `show_chart` (Streamlit paints Plotly paper white otherwise).
   AppTest can't rerun pages with dynamic multiselect options: set `session_state` before the first run.
   Step 6 logic (matrix, feature radar, summary, quotes) is pure code in `ui/insights.py`.
+  Trend, matrix and radar figures are built in `ui/charts.py` (pure, no Streamlit), shared with the PDF report.
   Glass + padding go on the wrapper (`stVerticalBlockBorderWrapper:has(> div > .st-key-glass-…)`), never on
   the keyed block: Streamlit sizes Plotly from the block, so padding there makes charts overflow.
   UI decisions and screenshots: `docs/ui-decisions.md`.

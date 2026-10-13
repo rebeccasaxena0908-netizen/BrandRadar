@@ -6,7 +6,6 @@
 from __future__ import annotations
 
 import html
-import math
 from datetime import date, timedelta
 
 import pandas as pd
@@ -15,9 +14,8 @@ import streamlit as st
 
 from config import settings
 from nlp.models import EMOTIONS
-from nlp.priority import FIX_NOW, IGNORE, MONITOR, QUICK_WINS
 from nlp.profiles import SOFTWARE, get_profile
-from ui import data, insights
+from ui import charts, data, insights
 from ui.components import (
     BERRY, COMPLAINT_CLOUD_COLOURS, EMOTION_COLOURS, INK, PRAISE_CLOUD_COLOURS, SENTIMENT_COLOURS,
     background_html, brand_colours, delta_html, empty_state, glass_card, inject_styles, kpi_card,
@@ -206,41 +204,13 @@ def sentiment_trend(brand: pd.Series, comps: list[pd.Series], current: pd.DataFr
     with glass_card("trend"):
         section_title("Daily sentiment", "Net sentiment ×100, 3-day rolling mean weighted by mentions")
         trend = data.daily_trend(current, start, end)
-        own = trend[(trend["brand_id"] == brand["id"]) & trend["score"].notna()]
+        own = charts.own_trend(trend, int(brand["id"]))
         if (end - start).days < 1 or own["day"].nunique() < 2:
             empty_state("Not enough data yet", f"{brand['name']} needs mentions on at least two days in this range "
                         "to draw a trend.", height=TREND_HEIGHT)
             return
-        fig = go.Figure()
-        for comp in comps:
-            line = trend[(trend["brand_id"] == comp["id"]) & trend["score"].notna()]
-            if line["day"].nunique() < 2:
-                continue
-            fig.add_trace(go.Scatter(
-                x=line["day"], y=line["score"], name=comp["name"], mode="lines",
-                line=dict(color=colours[comp["name"]], width=1.6, shape="spline", smoothing=0.6),
-                customdata=line["mentions"],
-                hovertemplate="%{x|%d %b}: %{y:+.0f}<br>%{customdata} mention(s) that day<extra>" + comp["name"] + "</extra>",
-            ))
-        fig.add_trace(go.Scatter(
-            x=own["day"], y=own["score"], name=brand["name"], mode="lines",
-            line=dict(color=BERRY, width=3.2, shape="spline", smoothing=0.6),
-            fill="tozeroy", fillcolor="rgba(158,74,90,0.10)", customdata=own["mentions"],
-            hovertemplate="%{x|%d %b}: %{y:+.0f}<br>%{customdata} mention(s) that day<extra>" + brand["name"] + "</extra>",
-        ))
-        last = own.iloc[-1]
-        fig.add_trace(go.Scatter(
-            x=[last["day"]], y=[last["score"]], mode="markers+text", showlegend=False, hoverinfo="skip",
-            marker=dict(size=13, color=BERRY, line=dict(color="white", width=3)),
-            text=[f"{last['score']:+.0f}"], textposition="top center",
-            textfont=dict(family="Montserrat, sans-serif", size=13, color=BERRY),
-        ))
-        fig.update_layout(
-            # range a little past ±100 so the -100 label doesn't collide with the date labels
-            yaxis=dict(range=[-112, 112], tickvals=[-100, -50, 0, 50, 100], showgrid=True, zeroline=True),
-            xaxis=dict(tickformat="%d %b", showgrid=False), hovermode="x unified",
-            legend=dict(y=1.06), margin=dict(l=8, r=24, t=34, b=8),
-        )
+        fig = charts.trend_figure(trend, (int(brand["id"]), brand["name"]),
+                                  [(int(c["id"]), c["name"]) for c in comps], colours)
         show_chart(fig, height=TREND_HEIGHT)
 
 
@@ -266,11 +236,6 @@ def word_clouds(brand: pd.Series, current: pd.DataFrame, brands: pd.DataFrame) -
 
 # ---------------------------------------------------------------- priority matrix
 
-QUADRANT_COLOURS = {FIX_NOW: "#D9536A", QUICK_WINS: BERRY, MONITOR: "#E79AA6", IGNORE: "#B7AEB0"}
-# very soft tints of the theme's rose/blush; Fix now slightly stronger
-QUADRANT_TINTS = {FIX_NOW: "rgba(217,83,106,0.11)", QUICK_WINS: "rgba(231,154,166,0.08)",
-                  MONITOR: "rgba(243,186,193,0.08)", IGNORE: "rgba(240,220,219,0.10)"}
-MENTION_TICKS = (0, 1, 2, 5, 10, 20, 50, 100)
 
 
 def priority_matrix(brand: pd.Series) -> pd.DataFrame:
@@ -295,53 +260,7 @@ def priority_matrix(brand: pd.Series) -> pd.DataFrame:
                         "Switch on “Show all topics” to see them.", height=360)
             return matrix
         texts = data.topic_texts(tuple(int(t) for t in matrix["id"]))
-        x_split = math.log1p(settings.priority_volume_threshold)
-        x_max = max(matrix["x"].max() + 0.45, x_split + 0.9)
-        y_max = max(matrix["y"].max() * 1.18, settings.priority_pain_threshold * 2)
-        fig = go.Figure()
-        # quadrant names sit at the top of each quadrant: the bottom corners are where low-pain topics cluster
-        corners = {FIX_NOW: (x_split, x_max, settings.priority_pain_threshold, y_max, "right"),
-                   QUICK_WINS: (-0.12, x_split, settings.priority_pain_threshold, y_max, "left"),
-                   MONITOR: (x_split, x_max, -0.015, settings.priority_pain_threshold, "right"),
-                   IGNORE: (-0.12, x_split, -0.015, settings.priority_pain_threshold, "left")}
-        for name, (x0, x1, y0, y1, xa) in corners.items():
-            fig.add_shape(type="rect", x0=x0, x1=x1, y0=y0, y1=y1, line_width=0, fillcolor=QUADRANT_TINTS[name], layer="below")
-            fig.add_annotation(x=x1 - 0.04 if xa == "right" else x0 + 0.04, y=y1, yshift=-4,
-                               xanchor=xa, yanchor="top", showarrow=False, text=name.upper(),
-                               font=dict(family="Montserrat, sans-serif", size=10, color=QUADRANT_COLOURS[name]))
-        biggest = matrix["mentions"].max()
-        for name in insights.QUADRANTS:
-            part = matrix[matrix["quadrant"] == name]
-            if part.empty:
-                continue
-            hovers = []
-            for _, t in part.iterrows():
-                quotes = "".join(f"<br><i>“{html.escape(q)}”</i>" for q in insights.topic_quotes(texts, int(t["id"])))
-                hovers.append(
-                    f"<b>{html.escape(t['label'])}</b><br>{html.escape(str(t['category'] or ''))} · {name}"
-                    f"<br>{int(t['volume_7d'])} this week vs {int(t['volume_prev_7d'])} last week "
-                    f"({insights.trend_text(int(t['volume_7d']), int(t['volume_prev_7d']))})"
-                    f"<br>{int(t['mentions'])} mentions in total · pain {t['pain']:.2f}{quotes}"
-                )
-            fig.add_trace(go.Scatter(
-                # Ignore bubbles stay unlabelled (hover only): low-pain topics cluster and their labels collide
-                x=part["x"], y=part["y"], mode="markers+text", name=name,
-                text=part["label"] if name != IGNORE else [""] * len(part),
-                textposition="top center", textfont=dict(family="Figtree, sans-serif", size=11, color=INK),
-                marker=dict(size=[14 + 26 * math.sqrt(m / biggest) for m in part["mentions"]],
-                            color=QUADRANT_COLOURS[name], opacity=0.82, line=dict(color="white", width=2)),
-                hovertext=hovers, hovertemplate="%{hovertext}<extra></extra>", cliponaxis=False,
-            ))
-        ticks = [t for t in MENTION_TICKS if math.log1p(t) <= x_max]
-        fig.update_layout(
-            showlegend=False, margin=dict(l=8, r=12, t=12, b=8),
-            xaxis=dict(range=[-0.12, x_max], tickvals=[math.log1p(t) for t in ticks], ticktext=[str(t) for t in ticks],
-                       title=dict(text="Complaints in the last 7 days (log scale)", font=dict(size=11)), showgrid=False,
-                       zeroline=False),
-            yaxis=dict(range=[-0.015, y_max], title=dict(text="Pain", font=dict(size=11)), showgrid=False,
-                       zeroline=False, tickformat=".2f"),
-            hoverlabel=dict(align="left"),
-        )
+        fig = charts.matrix_figure(matrix, texts, settings.priority_volume_threshold, settings.priority_pain_threshold)
         show_chart(fig, height=MATRIX_HEIGHT)
         if hidden and not show_all:
             st.markdown(f'<div class="br-note">{hidden} praise/discussion topic(s) hidden · '
@@ -361,7 +280,7 @@ def ranked_topics(matrix: pd.DataFrame) -> None:
                         '<div class="br-calm-text">No topics in Fix now or Quick wins.</div></div>', unsafe_allow_html=True)
             return
         rows = "".join(
-            f'<li><span class="br-rank-dot" style="background:{QUADRANT_COLOURS[r["quadrant"]]}"></span>'
+            f'<li><span class="br-rank-dot" style="background:{charts.QUADRANT_COLOURS[r["quadrant"]]}"></span>'
             f'<span class="br-rank-label">{html.escape(r["label"])}</span>'
             f'<span class="br-rank-meta">{r["quadrant"]} · {int(r["volume_7d"])} this week · pain {r["pain"]:.2f}</span></li>'
             for _, r in urgent.iterrows()
@@ -412,39 +331,8 @@ def feature_radar(brand: pd.Series, comps: list[pd.Series], colours: dict[str, s
             empty_state("Not enough feature mentions", f"Fewer than {insights.MIN_RADAR_FEATURES} features have "
                         f"{insights.MIN_FEATURE_MENTIONS}+ mentions for these brands.", height=RADAR_HEIGHT)
             return table
-        theta = [f.title() if f.islower() else f for f in table.features]
-        fig = go.Figure()
-        ring = [0] * (len(theta) + 1)
-        fig.add_trace(go.Scatterpolar(r=ring, theta=theta + theta[:1], mode="lines", hoverinfo="skip",
-                                      line=dict(color="#E79AA6", width=1, dash="dot"), showlegend=False))
-        for b in [*comps, brand]:
-            bid = int(b["id"])
-            if bid not in table.net.index:
-                continue
-            values = table.net.loc[bid].tolist()
-            counts = table.counts.loc[bid].tolist()
-            if all(pd.isna(v) for v in values):
-                continue
-            own = bid == int(brand["id"])
-            hover = [f"{t}: {v:+.0f} ({n} mentions)" if not pd.isna(v) else f"{t}: too few mentions ({n})"
-                     for t, v, n in zip(theta, values, counts)]
-            r = [None if pd.isna(v) else v for v in values]
-            fig.add_trace(go.Scatterpolar(
-                r=r + r[:1], theta=theta + theta[:1], name=b["name"], connectgaps=True,
-                mode="lines+markers", hovertext=hover + hover[:1], hovertemplate="%{hovertext}<extra>" + b["name"] + "</extra>",
-                line=dict(color=colours[b["name"]], width=3 if own else 2),
-                marker=dict(size=7 if own else 5, color=colours[b["name"]]),
-                fill="toself" if own else None, fillcolor="rgba(158,74,90,0.16)" if own else None,
-            ))
-        fig.update_layout(
-            # radial labels between the first two spokes, so they don't sit on a feature's axis
-            polar=dict(radialaxis=dict(range=[-100, 100], tickvals=[-100, -50, 0, 50, 100],
-                                       angle=90 - 180 / len(theta), tickangle=90 - 180 / len(theta),
-                                       tickfont=dict(size=9), showline=False),
-                       angularaxis=dict(direction="clockwise", rotation=90)),
-            # side margins fit the longest axis label ("Performance") at phone width; Plotly clips text to its SVG
-            legend=dict(y=-0.06, yanchor="top", x=0.5, xanchor="center"), margin=dict(l=64, r=64, t=24, b=40),
-        )
+        fig = charts.radar_figure(table, (int(brand["id"]), brand["name"]),
+                                  [(int(c["id"]), c["name"]) for c in comps], colours)
         show_chart(fig, height=RADAR_HEIGHT)
     return table
 
