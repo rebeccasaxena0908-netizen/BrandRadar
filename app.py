@@ -5,14 +5,18 @@
 
 from __future__ import annotations
 
+import html
+import math
 from datetime import date, timedelta
 
 import pandas as pd
 import plotly.graph_objects as go
 import streamlit as st
 
+from config import settings
 from nlp.models import EMOTIONS
-from ui import data
+from nlp.priority import FIX_NOW, IGNORE, MONITOR, QUICK_WINS
+from ui import data, insights
 from ui.components import (
     BERRY, COMPLAINT_CLOUD_COLOURS, EMOTION_COLOURS, INK, PRAISE_CLOUD_COLOURS, SENTIMENT_COLOURS,
     background_html, brand_colours, delta_html, empty_state, glass_card, inject_styles, kpi_card,
@@ -22,6 +26,8 @@ from ui.components import (
 DEFAULT_DAYS = 14  # previous 14 days exist in our ~30 days of data, so KPI deltas are real
 MIN_FOR_CHART = 5  # fewer mentions than this -> designed empty state instead of a chart
 TREND_HEIGHT = 380
+MATRIX_HEIGHT = 440
+RADAR_HEIGHT = 420
 WHEEL_HEIGHT = TREND_HEIGHT - 44  # the wheel card also holds the "compare with" control
 
 st.set_page_config(page_title="Brand Radar", page_icon="📡", layout="wide", initial_sidebar_state="collapsed")
@@ -212,6 +218,230 @@ def word_clouds(brand: pd.Series, current: pd.DataFrame, brands: pd.DataFrame) -
             st.image(wordcloud_png(texts, stop, palette), use_container_width=True)
 
 
+# ---------------------------------------------------------------- priority matrix
+
+QUADRANT_COLOURS = {FIX_NOW: "#D9536A", QUICK_WINS: BERRY, MONITOR: "#E79AA6", IGNORE: "#B7AEB0"}
+# very soft tints of the theme's rose/blush; Fix now slightly stronger
+QUADRANT_TINTS = {FIX_NOW: "rgba(217,83,106,0.11)", QUICK_WINS: "rgba(231,154,166,0.08)",
+                  MONITOR: "rgba(243,186,193,0.08)", IGNORE: "rgba(240,220,219,0.10)"}
+MENTION_TICKS = (0, 1, 2, 5, 10, 20, 50, 100)
+
+
+def priority_matrix(brand: pd.Series) -> pd.DataFrame:
+    """Matrix card; returns the plotted topics (the executive summary reuses them)."""
+    topics = data.topics(int(brand["id"]))
+    with glass_card("matrix"):
+        scored = topics["scored_at"].dropna()
+        when = f" · snapshot {pd.Timestamp(scored.max()):%d %b %H:%M}" if not scored.empty else ""
+        section_title("Priority matrix", "Complaint topics by volume (last 7 days) and pain — top right needs "
+                      f"attention first{when}")
+        if topics.empty:
+            empty_state("No complaint topics yet", f"{brand['name']} has too few complaints to cluster into topics "
+                        f"(at least {settings.topic_min_complaints} are needed).", height=360)
+            return topics
+        show_all = st.toggle("Show all topics", key="show_all_topics",
+                             help="Praise and neutral-discussion topics (near-zero pain, positive on average) are hidden by default.")
+        matrix = insights.topic_matrix(topics, settings.priority_volume_threshold, settings.priority_pain_threshold,
+                                       settings.priority_praise_pain_max, show_all=show_all)
+        hidden = len(topics) - len(matrix)
+        if matrix.empty:
+            empty_state("Only praise topics", f"All {len(topics)} topics are praise or discussion. "
+                        "Switch on “Show all topics” to see them.", height=360)
+            return matrix
+        texts = data.topic_texts(tuple(int(t) for t in matrix["id"]))
+        x_split = math.log1p(settings.priority_volume_threshold)
+        x_max = max(matrix["x"].max() + 0.45, x_split + 0.9)
+        y_max = max(matrix["y"].max() * 1.18, settings.priority_pain_threshold * 2)
+        fig = go.Figure()
+        # quadrant names sit at the top of each quadrant: the bottom corners are where low-pain topics cluster
+        corners = {FIX_NOW: (x_split, x_max, settings.priority_pain_threshold, y_max, "right"),
+                   QUICK_WINS: (-0.12, x_split, settings.priority_pain_threshold, y_max, "left"),
+                   MONITOR: (x_split, x_max, -0.015, settings.priority_pain_threshold, "right"),
+                   IGNORE: (-0.12, x_split, -0.015, settings.priority_pain_threshold, "left")}
+        for name, (x0, x1, y0, y1, xa) in corners.items():
+            fig.add_shape(type="rect", x0=x0, x1=x1, y0=y0, y1=y1, line_width=0, fillcolor=QUADRANT_TINTS[name], layer="below")
+            fig.add_annotation(x=x1 - 0.04 if xa == "right" else x0 + 0.04, y=y1, yshift=-4,
+                               xanchor=xa, yanchor="top", showarrow=False, text=name.upper(),
+                               font=dict(family="Montserrat, sans-serif", size=10, color=QUADRANT_COLOURS[name]))
+        biggest = matrix["mentions"].max()
+        for name in insights.QUADRANTS:
+            part = matrix[matrix["quadrant"] == name]
+            if part.empty:
+                continue
+            hovers = []
+            for _, t in part.iterrows():
+                quotes = "".join(f"<br><i>“{html.escape(q)}”</i>" for q in insights.topic_quotes(texts, int(t["id"])))
+                hovers.append(
+                    f"<b>{html.escape(t['label'])}</b><br>{html.escape(str(t['category'] or ''))} · {name}"
+                    f"<br>{int(t['volume_7d'])} this week vs {int(t['volume_prev_7d'])} last week "
+                    f"({insights.trend_text(int(t['volume_7d']), int(t['volume_prev_7d']))})"
+                    f"<br>{int(t['mentions'])} mentions in total · pain {t['pain']:.2f}{quotes}"
+                )
+            fig.add_trace(go.Scatter(
+                # Ignore bubbles stay unlabelled (hover only): low-pain topics cluster and their labels collide
+                x=part["x"], y=part["y"], mode="markers+text", name=name,
+                text=part["label"] if name != IGNORE else [""] * len(part),
+                textposition="top center", textfont=dict(family="Figtree, sans-serif", size=11, color=INK),
+                marker=dict(size=[14 + 26 * math.sqrt(m / biggest) for m in part["mentions"]],
+                            color=QUADRANT_COLOURS[name], opacity=0.82, line=dict(color="white", width=2)),
+                hovertext=hovers, hovertemplate="%{hovertext}<extra></extra>", cliponaxis=False,
+            ))
+        ticks = [t for t in MENTION_TICKS if math.log1p(t) <= x_max]
+        fig.update_layout(
+            showlegend=False, margin=dict(l=8, r=12, t=12, b=8),
+            xaxis=dict(range=[-0.12, x_max], tickvals=[math.log1p(t) for t in ticks], ticktext=[str(t) for t in ticks],
+                       title=dict(text="Complaints in the last 7 days (log scale)", font=dict(size=11)), showgrid=False,
+                       zeroline=False),
+            yaxis=dict(range=[-0.015, y_max], title=dict(text="Pain", font=dict(size=11)), showgrid=False,
+                       zeroline=False, tickformat=".2f"),
+            hoverlabel=dict(align="left"),
+        )
+        show_chart(fig, height=MATRIX_HEIGHT)
+        if hidden and not show_all:
+            st.markdown(f'<div class="br-note">{hidden} praise/discussion topic(s) hidden · '
+                        f'unlabelled bubbles are Ignore topics (hover for details)</div>', unsafe_allow_html=True)
+        return matrix
+
+
+def ranked_topics(matrix: pd.DataFrame) -> None:
+    """Compact ranked list of Fix now and Quick wins topics (beside the matrix)."""
+    if matrix.empty or "quadrant" not in matrix:
+        return
+    urgent = insights.ranked_urgent(matrix)
+    with glass_card("ranked"):
+        section_title("Act on these first", "Fix now, then Quick wins · ranked by volume × pain")
+        if urgent.empty:
+            st.markdown('<div class="br-calm br-calm-compact"><div class="br-calm-title">Nothing urgent</div>'
+                        '<div class="br-calm-text">No topics in Fix now or Quick wins.</div></div>', unsafe_allow_html=True)
+            return
+        rows = "".join(
+            f'<li><span class="br-rank-dot" style="background:{QUADRANT_COLOURS[r["quadrant"]]}"></span>'
+            f'<span class="br-rank-label">{html.escape(r["label"])}</span>'
+            f'<span class="br-rank-meta">{r["quadrant"]} · {int(r["volume_7d"])} this week · pain {r["pain"]:.2f}</span></li>'
+            for _, r in urgent.iterrows()
+        )
+        st.markdown(f'<ol class="br-rank">{rows}</ol>', unsafe_allow_html=True)
+
+
+# ---------------------------------------------------------------- alerts
+
+
+def alert_pills(brand: pd.Series, start: date, end: date) -> None:
+    alerts = data.alerts(int(brand["id"]), start, end)
+    with glass_card("alerts"):
+        section_title("Trending complaint alerts", "Topics whose complaints at least doubled week over week")
+        if alerts.empty:
+            st.markdown(
+                f'<div class="br-calm"><div class="br-calm-icon">✓</div><div class="br-calm-title">No spikes this week</div>'
+                f'<div class="br-calm-text">Complaint volumes for {html.escape(brand["name"])} are steady in this period.</div></div>',
+                unsafe_allow_html=True,
+            )
+            return
+        pills = []
+        for _, a in alerts.iterrows():
+            this_week, last_week = int(a["this_week"] or 0), int(a["last_week"] or 0)
+            label = a["label"] if isinstance(a["label"], str) else a["message"]
+            seen = " br-alert-seen" if a["seen"] else ""
+            pills.append(
+                f'<div class="br-alert-pill{seen}"><span class="br-alert-dot"></span>'
+                f'<div class="br-alert-body"><div class="br-alert-label">{html.escape(label)}</div>'
+                f'<div class="br-alert-meta"><b>{insights.trend_text(this_week, last_week)}</b> · {this_week} this week'
+                f' · {pd.Timestamp(a["created_at"]):%d %b}</div></div></div>'
+            )
+        st.markdown(f'<div class="br-alert-list">{"".join(pills)}</div>', unsafe_allow_html=True)
+
+
+# ---------------------------------------------------------------- feature radar
+
+
+def feature_radar(brand: pd.Series, comps: list[pd.Series], colours: dict[str, str]) -> insights.FeatureTable:
+    ids = [int(brand["id"]), *(int(c["id"]) for c in comps)]
+    feature_df = data.feature_mentions(tuple(ids))
+    table = insights.feature_table(feature_df, ids)
+    with glass_card("radar"):
+        since = f" since {feature_df['created_at'].min():%d %b}" if not feature_df.empty else ""
+        section_title("Feature radar", f"Net sentiment per feature, −100 (all negative) to +100 (all positive) · "
+                      f"all data{since}, not the date filter")
+        if len(table.features) < insights.MIN_RADAR_FEATURES:
+            empty_state("Not enough feature mentions", f"Fewer than {insights.MIN_RADAR_FEATURES} features have "
+                        f"{insights.MIN_FEATURE_MENTIONS}+ mentions for these brands.", height=RADAR_HEIGHT)
+            return table
+        theta = [f.title() if f.islower() else f for f in table.features]
+        fig = go.Figure()
+        ring = [0] * (len(theta) + 1)
+        fig.add_trace(go.Scatterpolar(r=ring, theta=theta + theta[:1], mode="lines", hoverinfo="skip",
+                                      line=dict(color="#E79AA6", width=1, dash="dot"), showlegend=False))
+        for b in [*comps, brand]:
+            bid = int(b["id"])
+            if bid not in table.net.index:
+                continue
+            values = table.net.loc[bid].tolist()
+            counts = table.counts.loc[bid].tolist()
+            if all(pd.isna(v) for v in values):
+                continue
+            own = bid == int(brand["id"])
+            hover = [f"{t}: {v:+.0f} ({n} mentions)" if not pd.isna(v) else f"{t}: too few mentions ({n})"
+                     for t, v, n in zip(theta, values, counts)]
+            r = [None if pd.isna(v) else v for v in values]
+            fig.add_trace(go.Scatterpolar(
+                r=r + r[:1], theta=theta + theta[:1], name=b["name"], connectgaps=True,
+                mode="lines+markers", hovertext=hover + hover[:1], hovertemplate="%{hovertext}<extra>" + b["name"] + "</extra>",
+                line=dict(color=colours[b["name"]], width=3 if own else 2),
+                marker=dict(size=7 if own else 5, color=colours[b["name"]]),
+                fill="toself" if own else None, fillcolor="rgba(158,74,90,0.16)" if own else None,
+            ))
+        fig.update_layout(
+            # radial labels between the first two spokes, so they don't sit on a feature's axis
+            polar=dict(radialaxis=dict(range=[-100, 100], tickvals=[-100, -50, 0, 50, 100],
+                                       angle=90 - 180 / len(theta), tickangle=90 - 180 / len(theta),
+                                       tickfont=dict(size=9), showline=False),
+                       angularaxis=dict(direction="clockwise", rotation=90)),
+            # side margins fit the longest axis label ("Performance") at phone width; Plotly clips text to its SVG
+            legend=dict(y=-0.06, yanchor="top", x=0.5, xanchor="center"), margin=dict(l=64, r=64, t=24, b=40),
+        )
+        show_chart(fig, height=RADAR_HEIGHT)
+    return table
+
+
+# ---------------------------------------------------------------- executive summary
+
+
+def stars(rating: object) -> str:
+    if rating is None or pd.isna(rating):
+        return ""
+    n = int(rating)
+    return f'<span class="br-stars" aria-label="{n} of 5 stars">{"★" * n}{"☆" * (5 - n)}</span>'
+
+
+def executive_summary(brand: pd.Series, comps: list[pd.Series], matrix: pd.DataFrame, table: insights.FeatureTable,
+                      current: pd.DataFrame, previous: pd.DataFrame, days: int) -> None:
+    own = current[current["brand_id"] == brand["id"]]
+    k = data.compute_kpis(own, previous)
+    summary = insights.summary_picks(brand["name"], matrix, table, int(brand["id"]), [int(c["id"]) for c in comps],
+                                     current, k.net_sentiment, k.net_sentiment_change, days)
+    with glass_card("summary"):
+        section_title("Executive summary", f"{brand['name']} this period, in 20 seconds · built from the numbers above")
+        lines = [("risk", summary.risk), ("win", summary.win), ("request", summary.request), ("change", summary.change)]
+        st.markdown('<ul class="br-summary">' + "".join(
+            f'<li class="br-summary-{kind}"><span class="br-summary-mark"></span><span>{line}</span></li>'
+            for kind, line in lines) + "</ul>", unsafe_allow_html=True)
+        quotes = insights.pick_quotes(own)
+        if not quotes:
+            return
+        cards = []
+        for sentiment in ("negative", "neutral", "positive"):
+            if sentiment not in quotes:
+                continue
+            q = quotes[sentiment]
+            meta = f'{data.SOURCES.get(q["source"], q["source"])} {stars(q["rating"])} · {pd.Timestamp(q["created_at"]):%d %b}'
+            cards.append(
+                f'<figure class="br-quote br-quote-{sentiment}"><blockquote>“{html.escape(" ".join(q["text"].split()))}”</blockquote>'
+                f'<figcaption><span class="br-quote-tag">{sentiment}</span> {meta}</figcaption></figure>'
+            )
+        st.markdown(f'<div class="br-label br-quotes-head">What people are saying</div><div class="br-quotes">{"".join(cards)}</div>',
+                    unsafe_allow_html=True)
+
+
 # ---------------------------------------------------------------- page
 
 
@@ -240,6 +470,18 @@ def main() -> None:
     with right:
         sentiment_trend(brand, comps, current, start, end, colours)
     word_clouds(brand, current, brands)
+
+    wide, side = st.columns([1.7, 1], gap="medium")
+    with wide:
+        matrix = priority_matrix(brand)
+    with side:
+        alert_pills(brand, start, end)
+        ranked_topics(matrix)
+    left, right = st.columns(2, gap="medium")
+    with left:
+        table = feature_radar(brand, comps, colours)
+    with right:
+        executive_summary(brand, comps, matrix, table, current, previous, days)
     st.markdown(f'<div class="br-footnote">{start:%d %b} – {end:%d %b %Y} · '
                 f'{", ".join(data.SOURCES[s] for s in sources)} · data refreshes every 60 s</div>',
                 unsafe_allow_html=True)

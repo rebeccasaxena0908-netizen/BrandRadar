@@ -158,6 +158,8 @@ class Alert(Base):
     )
     kind: Mapped[str] = mapped_column(String(32))
     message: Mapped[str] = mapped_column(String(1024))
+    this_week: Mapped[Optional[int]] = mapped_column(Integer)  # numbers at alert time (the topic
+    last_week: Mapped[Optional[int]] = mapped_column(Integer)  # snapshot only holds today's)
     created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
     seen: Mapped[bool] = mapped_column(Boolean, default=False)
 

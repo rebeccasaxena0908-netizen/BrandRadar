@@ -42,11 +42,13 @@ def query_mentions(
     engine: Engine, brand_ids: tuple[int, ...], start: date, end: date, sources: tuple[str, ...]
 ) -> pd.DataFrame:
     """Analysed mentions for the brands/sources with created_at in [start, end] (whole days)."""
-    columns = ["brand_id", "created_at", "source", "text", "sentiment", "sentiment_score", "emotion_scores"]
+    columns = ["brand_id", "created_at", "source", "text", "rating", "sentiment", "sentiment_score",
+               "emotion_scores", "category", "feature", "topic_id"]
     if not brand_ids or not sources:
         return pd.DataFrame(columns=columns)
     stmt = text(
-        "SELECT m.brand_id, m.created_at, m.source, m.text, a.sentiment, a.sentiment_score, a.emotion_scores "
+        "SELECT m.brand_id, m.created_at, m.source, m.text, m.rating, a.sentiment, a.sentiment_score, "
+        "a.emotion_scores, a.category, a.feature, a.topic_id "
         "FROM mentions m JOIN analysis a ON a.mention_id = m.id "
         "WHERE m.brand_id IN :brands AND m.source IN :sources "
         "AND m.created_at >= :start AND m.created_at < :end AND a.sentiment IS NOT NULL"
@@ -66,6 +68,59 @@ def query_open_alerts(engine: Engine, brand_id: int) -> int:
         return int(conn.execute(
             text("SELECT COUNT(*) FROM alerts WHERE brand_id = :b AND seen = 0"), {"b": brand_id}
         ).scalar_one())
+
+
+def query_topics(engine: Engine, brand_id: int) -> pd.DataFrame:
+    """The brand's topics with their priority snapshot, total mentions and mean sentiment."""
+    stmt = text(
+        "SELECT t.id, t.label, t.category, t.volume_7d, t.volume_prev_7d, t.pain, t.trend, t.quadrant, "
+        "t.scored_at, COUNT(a.mention_id) AS mentions, AVG(a.sentiment_score) AS mean_sentiment "
+        "FROM topics t LEFT JOIN analysis a ON a.topic_id = t.id WHERE t.brand_id = :b "
+        "GROUP BY t.id, t.label, t.category, t.volume_7d, t.volume_prev_7d, t.pain, t.trend, t.quadrant, t.scored_at"
+    )
+    with engine.connect() as conn:
+        df = pd.read_sql(stmt, conn, params={"b": brand_id})
+    return df[df["mentions"] > 0].reset_index(drop=True)  # topics left empty by re-clustering are inactive
+
+
+def query_topic_texts(engine: Engine, topic_ids: tuple[int, ...]) -> pd.DataFrame:
+    if not topic_ids:
+        return pd.DataFrame(columns=["topic_id", "text", "sentiment_score"])
+    stmt = text(
+        "SELECT a.topic_id, m.text, a.sentiment_score FROM analysis a JOIN mentions m ON m.id = a.mention_id "
+        "WHERE a.topic_id IN :ids"
+    ).bindparams(bindparam("ids", expanding=True))
+    with engine.connect() as conn:
+        return pd.read_sql(stmt, conn, params={"ids": list(topic_ids)})
+
+
+def query_alerts(engine: Engine, brand_id: int, start: date, end: date) -> pd.DataFrame:
+    """Spike alerts created in [start, end], newest first, with the topic's *current* label."""
+    stmt = text(
+        "SELECT a.id, a.created_at, a.seen, a.this_week, a.last_week, a.message, a.topic_id, t.label "
+        "FROM alerts a LEFT JOIN topics t ON t.id = a.topic_id "
+        "WHERE a.brand_id = :b AND a.created_at >= :start AND a.created_at < :end ORDER BY a.created_at DESC"
+    )
+    with engine.connect() as conn:
+        return pd.read_sql(stmt, conn, params={
+            "b": brand_id, "start": datetime.combine(start, time.min),
+            "end": datetime.combine(end + timedelta(days=1), time.min),
+        })
+
+
+def query_feature_mentions(engine: Engine, brand_ids: tuple[int, ...]) -> pd.DataFrame:
+    """Every analysed mention with a feature, over all available data (the feature radar ignores the
+    date picker: feature coverage is too thin for a 14-day window)."""
+    if not brand_ids:
+        return pd.DataFrame(columns=["brand_id", "feature", "sentiment_score", "created_at"])
+    stmt = text(
+        "SELECT m.brand_id, a.feature, a.sentiment_score, m.created_at FROM analysis a "
+        "JOIN mentions m ON m.id = a.mention_id WHERE a.feature IS NOT NULL AND m.brand_id IN :b"
+    ).bindparams(bindparam("b", expanding=True))
+    with engine.connect() as conn:
+        df = pd.read_sql(stmt, conn, params={"b": list(brand_ids)})
+    df["created_at"] = pd.to_datetime(df["created_at"])
+    return df
 
 
 def _parse_json(value: Any) -> dict[str, float]:
@@ -186,3 +241,23 @@ def mentions(brand_ids: tuple[int, ...], start: date, end: date, sources: tuple[
 @st.cache_data(ttl=60, show_spinner=False)
 def open_alerts(brand_id: int) -> int:
     return query_open_alerts(get_engine(), brand_id)
+
+
+@st.cache_data(ttl=60, show_spinner=False)
+def topics(brand_id: int) -> pd.DataFrame:
+    return query_topics(get_engine(), brand_id)
+
+
+@st.cache_data(ttl=60, show_spinner=False)
+def topic_texts(topic_ids: tuple[int, ...]) -> pd.DataFrame:
+    return query_topic_texts(get_engine(), topic_ids)
+
+
+@st.cache_data(ttl=60, show_spinner=False)
+def alerts(brand_id: int, start: date, end: date) -> pd.DataFrame:
+    return query_alerts(get_engine(), brand_id, start, end)
+
+
+@st.cache_data(ttl=60, show_spinner=False)
+def feature_mentions(brand_ids: tuple[int, ...]) -> pd.DataFrame:
+    return query_feature_mentions(get_engine(), brand_ids)

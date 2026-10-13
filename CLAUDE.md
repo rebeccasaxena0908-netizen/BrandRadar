@@ -77,6 +77,10 @@ python tools/screenshot.py --url http://localhost:8501 --name stepN --motion   #
   Glass cards are `st.container(key="glass-…")`. Restart Streamlit after editing ui/*.py (modules are cached).
   Set chart backgrounds explicitly in `show_chart` (Streamlit paints Plotly paper white otherwise).
   AppTest can't rerun pages with dynamic multiselect options: set `session_state` before the first run.
+  Step 6 logic (matrix, feature radar, summary, quotes) is pure code in `ui/insights.py`.
+  Glass + padding go on the wrapper (`stVerticalBlockBorderWrapper:has(> div > .st-key-glass-…)`), never on
+  the keyed block: Streamlit sizes Plotly from the block, so padding there makes charts overflow.
+  UI decisions and screenshots: `docs/ui-decisions.md`.
 - Brand matching: `exclude` phrases are removed before matching; `exclude_if` words drop the mention.
 - This machine is an 8 GB M2: MPS memory is shared with the system. Keep zero-shot input short
   (`NLP_ZERO_SHOT_MAX_TOKENS`), batches small, and free MPS memory between batches.

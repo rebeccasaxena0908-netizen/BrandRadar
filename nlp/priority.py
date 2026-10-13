@@ -196,6 +196,7 @@ def run_priority(
             topic.pain, topic.trend, topic.quadrant, topic.scored_at = s.pain, s.trend, s.quadrant, as_of
             if s.alert and s.topic_id not in already:
                 alert = Alert(brand_id=s.brand_id, topic_id=s.topic_id, kind=ALERT_KIND,
+                              this_week=s.volume_7d, last_week=s.volume_prev_7d,
                               message=alert_message(s)[:1024], created_at=as_of, seen=False)
                 session.add(alert)
                 created.append(alert)

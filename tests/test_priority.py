@@ -158,7 +158,9 @@ def test_one_alert_per_topic_per_week(factory: sessionmaker[Session], notion: Br
     _, again = run_priority(factory, as_of=AS_OF + timedelta(days=1))  # same ISO week
     assert len(first) == 1 and again == []
     with factory() as s:
-        assert s.scalars(select(Alert)).one().kind == "spike"
+        alert = s.scalars(select(Alert)).one()
+        assert alert.kind == "spike"
+        assert (alert.this_week, alert.last_week) == (5, 0)  # numbers at alert time are stored
 
 
 def test_alert_allowed_again_next_week(factory: sessionmaker[Session], notion: BrandSpec) -> None:

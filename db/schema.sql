@@ -103,6 +103,8 @@ CREATE TABLE IF NOT EXISTS alerts (
   topic_id    INT UNSIGNED NULL,
   kind        VARCHAR(32)  NOT NULL,
   message     VARCHAR(1024) NOT NULL,
+  this_week   INT UNSIGNED NULL,      -- complaint mentions in the 7 days before the alert
+  last_week   INT UNSIGNED NULL,      -- ...and in the 7 days before that
   created_at  DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP,
   seen        TINYINT(1)   NOT NULL DEFAULT 0,
   PRIMARY KEY (id),

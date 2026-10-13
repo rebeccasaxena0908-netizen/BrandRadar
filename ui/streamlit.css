@@ -16,8 +16,11 @@ h1, h2, h3, h4 { font-family: Montserrat, sans-serif; color: var(--ink); }
 [data-testid="stElementContainer"]:has(.br-sky-layer),
 [data-testid="stElementContainer"]:has(> [data-testid="stMarkdown"] style) { position: absolute; height: 0; margin: 0; }
 
-/* ---------- glass containers: st.container(key="glass-…") ---------- */
-[class*="st-key-glass-"] {
+/* ---------- glass containers: st.container(key="glass-…") ----------
+   The glass (and its padding) goes on Streamlit's wrapper around the keyed block, not the block itself:
+   Streamlit measures the block to size charts, so padding on it made every Plotly chart 2 x 20px too
+   wide for its card. GLASS below is .glass from the approved theme, unchanged. */
+[data-testid="stVerticalBlockBorderWrapper"]:has(> div > [class*="st-key-glass-"]) {
   background: rgba(255,255,255,.52);
   -webkit-backdrop-filter: blur(18px) saturate(150%);
   backdrop-filter: blur(18px) saturate(150%);
@@ -35,7 +38,7 @@ h1, h2, h3, h4 { font-family: Montserrat, sans-serif; color: var(--ink); }
 [class*="st-key-glass-"] [data-testid="stImage"] img { max-width: 100% !important; height: auto !important; }
 
 /* ---------- header bar ---------- */
-.st-key-glass-header { padding: 14px 22px 16px; }
+[data-testid="stVerticalBlockBorderWrapper"]:has(> div > .st-key-glass-header) { padding: 14px 22px 16px; }
 .br-wordmark { display: flex; align-items: center; gap: 10px; padding: 22px 0 4px; min-height: 40px; }
 .br-wordmark svg { flex-shrink: 0; }
 .br-wordmark span { font-family: Montserrat, sans-serif; font-weight: 800; font-size: 16px;
@@ -84,15 +87,71 @@ h1, h2, h3, h4 { font-family: Montserrat, sans-serif; color: var(--ink); }
 
 .br-footnote { font-family: Figtree, sans-serif; font-size: 12px; color: var(--muted); text-align: center; margin-top: 8px; }
 
+/* ---------- Step 6: priority matrix ranked list ---------- */
+.br-note { font-family: Figtree, sans-serif; font-size: 12px; color: var(--muted); margin-top: -4px; }
+.br-calm-compact { padding: 14px 8px; }
+.br-rank { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 6px; }
+.br-rank li { display: flex; align-items: baseline; flex-wrap: wrap; gap: 4px 10px; padding: 8px 12px;
+  border-radius: 12px; background: rgba(255,255,255,.55); border: 1px solid rgba(255,255,255,.85); }
+.br-rank-dot { width: 9px; height: 9px; border-radius: 50%; flex-shrink: 0; transform: translateY(-1px); }
+.br-rank-label { font-family: Montserrat, sans-serif; font-weight: 600; font-size: 13.5px; color: var(--ink); }
+.br-rank-meta { font-family: Figtree, sans-serif; font-size: 12px; color: var(--ink-soft); margin-left: 19px; width: 100%; }
+
+/* ---------- Step 6: alert pills ---------- */
+.br-alert-list { display: flex; flex-direction: column; gap: 8px; }
+.br-alert-pill { display: flex; align-items: center; gap: 12px; padding: 10px 14px; border-radius: 999px;
+  background: rgba(255,255,255,.62); border: 1px solid rgba(217,83,106,.28); box-shadow: 0 4px 14px rgba(158,74,90,.08); }
+.br-alert-pill .br-alert-dot { flex-shrink: 0; }
+.br-alert-body { min-width: 0; }
+.br-alert-label { font-family: Montserrat, sans-serif; font-weight: 600; font-size: 13.5px; color: var(--ink);
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.br-alert-meta { font-family: Figtree, sans-serif; font-size: 12px; color: var(--ink-soft); }
+.br-alert-meta b { color: var(--neg); }
+.br-alert-seen { opacity: .6; border-color: var(--rule); }
+.br-alert-seen .br-alert-dot { animation: none; background: var(--neu); }
+.br-calm { display: flex; flex-direction: column; align-items: center; text-align: center; gap: 8px; padding: 28px 16px; }
+.br-calm-icon { width: 44px; height: 44px; border-radius: 50%; display: flex; align-items: center; justify-content: center;
+  font-family: Montserrat, sans-serif; font-weight: 700; color: var(--pos); background: rgba(111,169,138,.14); font-size: 20px; }
+.br-calm-title { font-family: Montserrat, sans-serif; font-weight: 700; font-size: 14px; color: var(--ink); }
+.br-calm-text { font-family: Figtree, sans-serif; font-size: 12.5px; color: var(--ink-soft); max-width: 260px; }
+
+/* ---------- Step 6: executive summary ---------- */
+.br-summary { list-style: none; margin: 4px 0 0; padding: 0; display: flex; flex-direction: column; gap: 9px; }
+.br-summary li { display: flex; gap: 10px; font-family: Figtree, sans-serif; font-size: 14px; line-height: 1.45; color: var(--ink); }
+.br-summary b { font-weight: 700; }
+.br-summary-mark { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; margin-top: 7px; }
+.br-summary-risk .br-summary-mark { background: var(--neg); }
+.br-summary-win .br-summary-mark { background: var(--pos); }
+.br-summary-request .br-summary-mark { background: var(--rose-deep); }
+.br-summary-change .br-summary-mark { background: var(--berry); }
+.br-quotes-head { margin: 16px 0 8px; }
+.br-quotes { display: flex; flex-direction: column; gap: 8px; }
+.br-quote { margin: 0; padding: 10px 14px; border-radius: 14px; background: rgba(255,255,255,.55);
+  border: 1px solid rgba(255,255,255,.85); border-left: 3px solid var(--neu); }
+.br-quote-negative { border-left-color: var(--neg); }
+.br-quote-positive { border-left-color: var(--pos); }
+.br-quote blockquote { margin: 0; font-family: Figtree, sans-serif; font-size: 13.5px; line-height: 1.45; color: var(--ink);
+  overflow-wrap: anywhere; }
+.br-quote figcaption { margin-top: 4px; font-family: Figtree, sans-serif; font-size: 11.5px; color: var(--muted); }
+.br-quote-tag { font-family: Montserrat, sans-serif; font-size: 9.5px; font-weight: 700; letter-spacing: .14em;
+  text-transform: uppercase; color: var(--ink-soft); }
+.br-stars { color: #E9B949; letter-spacing: 1px; }
+
+/* Streamlit's markdown styles indent list items and draw its own blockquote bar: reset inside ours */
+.br-rank li, .br-summary li { margin: 0 !important; padding-left: 0; }
+.br-rank li { padding: 8px 12px !important; }
+.br-quote blockquote { border-left: 0 !important; padding: 0 !important; }
+
 /* ---------- phone width: cards stack, KPIs 2 x 2 ---------- */
 @media (max-width: 640px) {
   .block-container { padding: .9rem .75rem 2.5rem; }
-  [class*="st-key-glass-"] { padding: 14px 14px; border-radius: 18px; }
+  [data-testid="stVerticalBlockBorderWrapper"]:has(> div > [class*="st-key-glass-"]) { padding: 14px 14px; border-radius: 18px; }
   .st-key-kpis [data-testid="stHorizontalBlock"] { flex-wrap: wrap; gap: 10px; }
   .st-key-kpis [data-testid="stColumn"] { flex: 1 1 calc(50% - 10px) !important; min-width: calc(50% - 10px) !important; width: calc(50% - 10px) !important; }
   .br-kpi { min-height: 124px; padding: 14px 14px; }
   .br-kpi .br-big { font-size: 26px; }
   .br-wordmark { padding-top: 0; }
+  .br-summary li { font-size: 13.5px; }
   .br-wordmark span { font-size: 15px; letter-spacing: .26em; }
   .br-kpi { margin-bottom: calc(1rem - 10px); }
 }

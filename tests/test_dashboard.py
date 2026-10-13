@@ -13,7 +13,7 @@ from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy.pool import StaticPool
 
-from db.models import Alert, Analysis, Base, Brand, Mention
+from db.models import Alert, Analysis, Base, Brand, Mention, Topic
 from ui import data
 from ui.components import BERRY, COMPETITOR_COLOURS, background_html, brand_colours, delta_html
 
@@ -136,8 +136,15 @@ def engine():  # type: ignore[no-untyped-def]
         clickup = Brand(name="ClickUp", is_own=False, keywords=["clickup"])
         s.add_all([notion, clickup])
         s.flush()
-        texts = ["sync is broken again and support never answers", "love the templates and databases so much",
-                 "pricing doubled, cancelling my subscription", "fantastic editor, beautiful and fast"]
+        texts = ["sync is broken again and support never answers, I lost a whole afternoon of notes",
+                 "love the templates and databases so much, they make planning my week easy",
+                 "pricing doubled, cancelling my subscription because it is too expensive for me",
+                 "fantastic editor, beautiful and fast, I use it every day for my studies"]
+        features = ["sync", "databases", "pricing", "editor"]
+        topic = Topic(brand_id=notion.id, label="Sync Failures", category="bug", volume_7d=7, volume_prev_7d=2,
+                      pain=0.42, trend=3.5, quadrant="Fix now", scored_at=datetime.now())
+        s.add(topic)
+        s.flush()
         for i in range(40):
             when = datetime.combine(TODAY - timedelta(days=i % 27), datetime.min.time()) + timedelta(hours=10)
             m = Mention(brand_id=notion.id, source=("appstore", "playstore", "hackernews")[i % 3],
@@ -146,7 +153,9 @@ def engine():  # type: ignore[no-untyped-def]
             s.flush()
             positive = i % 2 == 1
             s.add(Analysis(mention_id=m.id, sentiment="positive" if positive else "negative",
-                           sentiment_score=0.7 if positive else -0.6, category="praise" if positive else "bug",
+                           sentiment_score=0.7 if positive else -0.6,
+                           category="praise" if positive else ("feature request" if i % 4 == 2 else "bug"),
+                           feature=features[i % 4], topic_id=None if positive else topic.id,
                            emotion_scores={"joy": 0.7, "neutral": 0.3} if positive else {"anger": 0.5, "sadness": 0.3, "neutral": 0.2}))
         for i in range(2):
             m = Mention(brand_id=clickup.id, source="appstore", external_id=f"c{i}", text="slow tasks",
@@ -154,7 +163,10 @@ def engine():  # type: ignore[no-untyped-def]
             s.add(m)
             s.flush()
             s.add(Analysis(mention_id=m.id, sentiment="negative", sentiment_score=-0.5, emotion_scores={"anger": 1.0}))
-        s.add(Alert(brand_id=notion.id, kind="spike", message="Spike: Sync", created_at=datetime.now(), seen=False))
+        s.add(Alert(brand_id=notion.id, topic_id=topic.id, kind="spike", message="Spike: Bug – old label",
+                    this_week=7, last_week=2, created_at=datetime.now(), seen=False))
+        s.add(Alert(brand_id=notion.id, topic_id=topic.id, kind="spike", message="Spike: older",
+                    this_week=5, last_week=0, created_at=datetime.now() - timedelta(days=8), seen=True))
         s.commit()
     return eng
 
@@ -165,6 +177,7 @@ def test_query_mentions_filters(engine) -> None:  # type: ignore[no-untyped-def]
     start = TODAY - timedelta(days=13)
     df = data.query_mentions(engine, (notion_id,), start, TODAY, ("appstore", "playstore", "hackernews"))
     assert len(df) == 27 and df["created_at"].min().date() >= start  # 40 mentions over 27 days
+    assert {"rating", "category", "feature", "topic_id"} <= set(df.columns)
     assert isinstance(df["emotion_scores"].iloc[0], dict)
     only_hn = data.query_mentions(engine, (notion_id,), start, TODAY, ("hackernews",))
     assert set(only_hn["source"]) == {"hackernews"}
@@ -196,8 +209,18 @@ def test_full_page_renders_for_own_brand(app) -> None:  # type: ignore[no-untype
     kpis = kpi_text(at)
     assert len(kpis) == 4
     assert kpis[0].startswith("Net sentiment") and "vs previous 14 days" in kpis[0]  # real change, not "no earlier data"
-    assert kpis[3].startswith("Open alerts 1")
-    assert len(at.get("plotly_chart")) == 2 and len(at.get("imgs")) == 2
+    assert kpis[3].startswith("Open alerts 1")  # the seen alert is not counted
+    # wheel, trend, priority matrix, feature radar
+    assert len(at.get("plotly_chart")) == 4 and len(at.get("imgs")) == 2
+    md = [m.value for m in at.markdown]
+    pills = next(m for m in md if 'class="br-alert-list"' in m)
+    assert pills.count('class="br-alert-pill') == 2 and pills.count("br-alert-seen") == 1
+    assert "Sync Failures" in pills and "old label" not in pills  # current topic label, not the stored message
+    assert "3.5×" in pills and "7 this week" in pills
+    assert any("Sync Failures" in m and 'class="br-rank"' in m for m in md)  # ranked list
+    summary = next(m for m in md if 'class="br-summary"' in m)
+    assert summary.count("<li") == 4 and "Biggest risk" in summary
+    assert any('class="br-quotes"' in m for m in md)
 
 
 def test_thin_brand_shows_designed_empty_states(app) -> None:  # type: ignore[no-untyped-def]
@@ -205,8 +228,9 @@ def test_thin_brand_shows_designed_empty_states(app) -> None:  # type: ignore[no
     at = app.run()
     assert not at.exception
     empties = [m.value for m in at.markdown if 'class="br-empty"' in m.value]
-    assert len(empties) >= 3  # wheel, trend, both clouds need more data
-    assert all("Not enough data yet" in e for e in empties)
+    assert len(empties) >= 4  # wheel, trend, clouds, no topics (the radar still shows the competitors' features)
+    assert any("No complaint topics yet" in e for e in empties)
+    assert any("No spikes this week" in m.value for m in at.markdown)  # calm alerts state, not an empty card
 
 
 def test_no_sources_selected(app) -> None:  # type: ignore[no-untyped-def]

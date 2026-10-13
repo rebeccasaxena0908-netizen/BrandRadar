@@ -67,7 +67,8 @@ def stitched_capture(page, width: int, height: int, scale: int) -> Image.Image:
 def motion_score(page) -> float:
     """Percentage of background pixels that changed over 3 s with the content hidden."""
     # hide the cards only: the background lives inside .block-container too
-    page.add_style_tag(content='[class*="st-key-glass-"], .st-key-kpis, .br-footnote { visibility: hidden !important; }')
+    page.add_style_tag(content='[data-testid="stVerticalBlockBorderWrapper"]:has(> div > [class*="st-key-glass-"]), '
+                               '.st-key-kpis, .br-footnote { visibility: hidden !important; }')
     page.wait_for_timeout(300)
     first = Image.open(io.BytesIO(page.screenshot())).convert("L")
     page.wait_for_timeout(3000)

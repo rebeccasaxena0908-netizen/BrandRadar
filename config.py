@@ -53,6 +53,7 @@ class Settings:
     topic_outlier_similarity: float
     priority_volume_threshold: int
     priority_pain_threshold: float
+    priority_praise_pain_max: float
     alert_trend_ratio: float
     alert_min_mentions: int
     reddit_client_id: str
@@ -99,6 +100,7 @@ def load_settings() -> Settings:
         topic_outlier_similarity=_get_float("TOPIC_OUTLIER_SIMILARITY", 0.5),
         priority_volume_threshold=_get_int("PRIORITY_VOLUME_THRESHOLD", 5),
         priority_pain_threshold=_get_float("PRIORITY_PAIN_THRESHOLD", 0.15),
+        priority_praise_pain_max=_get_float("PRIORITY_PRAISE_PAIN_MAX", 0.02),
         alert_trend_ratio=_get_float("ALERT_TREND_RATIO", 2.0),
         alert_min_mentions=_get_int("ALERT_MIN_MENTIONS", 5),
         reddit_client_id=os.getenv("REDDIT_CLIENT_ID", ""),
