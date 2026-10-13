@@ -32,8 +32,9 @@ RETRY_AFTER_429 = 15.0
 
 
 def gdelt_query(brand: BrandSpec) -> str:
-    """("Laneige" OR "Laneige lip") sourcelang:english — phrases quoted, OR needs parentheses."""
-    terms = [f'"{k}"' for k in dict.fromkeys(brand.keywords)]
+    """(laneige OR "laneige lip") sourcelang:english — multi-word phrases quoted (GDELT rejects quoted
+    short words as "phrase too short"), OR needs parentheses."""
+    terms = [f'"{k}"' if " " in k else k for k in dict.fromkeys(brand.keywords)]
     joined = terms[0] if len(terms) == 1 else "(" + " OR ".join(terms) + ")"
     return f"{joined} sourcelang:english"
 

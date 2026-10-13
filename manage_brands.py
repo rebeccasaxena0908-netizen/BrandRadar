@@ -276,7 +276,7 @@ def dry_run_main(argv: Sequence[str]) -> int:
     parser = argparse.ArgumentParser(prog="manage_brands.py dry-run", description=dry_run.__doc__)
     parser.add_argument("--file", type=Path, default=DEFAULT_FILE)
     parser.add_argument("--brand", action="append", help="only this brand (repeatable); default: all")
-    parser.add_argument("--group", help="only the brands in this group")
+    parser.add_argument("--group", action="append", help="only the brands in this group (repeatable)")
     parser.add_argument("--since-days", type=int, default=30)
     parser.add_argument("--show", type=int, default=DRY_RUN_SHOW, help="texts to show per list")
     args = parser.parse_args(argv)
@@ -288,7 +288,8 @@ def dry_run_main(argv: Sequence[str]) -> int:
 
     entries = load_yaml(args.file)
     if args.group:
-        entries = [e for e in entries if e.group.lower() == args.group.lower()]
+        groups = {g.lower() for g in args.group}
+        entries = [e for e in entries if e.group.lower() in groups]
     if args.brand:
         wanted = {b.lower() for b in args.brand}
         entries = [e for e in entries if e.name.lower() in wanted]

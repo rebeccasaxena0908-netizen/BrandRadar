@@ -33,8 +33,10 @@ def write(tmp_path: Path, text: str) -> Path:
 
 def test_project_brands_yaml_is_valid() -> None:
     entries = load_yaml(PROJECT_ROOT / "brands.yaml")
+    assert [e.name for e in entries if e.is_own] == ["Notion", "Laneige", "DOMS"]
+    assert {e.group for e in entries} == {"Note apps", "Skincare", "Stationery"}
+    entries = [e for e in entries if e.group == "Note apps"]
     assert [e.name for e in entries] == ["Notion", "Obsidian", "Evernote", "ClickUp"]
-    assert [e.name for e in entries if e.is_own] == ["Notion"]
     assert all(e.app_store_id and e.play_store_id and e.features for e in entries)
     assert all("mobile app" not in e.features for e in entries)
     assert all(e.features["pricing"] for e in entries)  # shared core merged in via the YAML anchor

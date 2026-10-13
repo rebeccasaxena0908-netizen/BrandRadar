@@ -25,9 +25,9 @@ def source(sleeps: list[float] | None = None) -> NewsSource:
 
 
 def test_query_quotes_phrases_and_ors_keywords() -> None:
-    assert gdelt_query(DOMS) == '"DOMS" sourcelang:english'
+    assert gdelt_query(DOMS) == 'DOMS sourcelang:english'
     two = BrandSpec(id=2, name="Laneige", keywords=("Laneige", "Laneige lip"))
-    assert gdelt_query(two) == '("Laneige" OR "Laneige lip") sourcelang:english'
+    assert gdelt_query(two) == '(Laneige OR "Laneige lip") sourcelang:english'
 
 
 @responses.activate

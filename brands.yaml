@@ -93,3 +93,87 @@ brands:
       <<: *core_features
       task management: [task, todo, to-do, checklist, subtask, deadline, assignee, sprint]
       notifications: [notification, notify, reminder, alert]
+
+  # ---------------------------------------------------------------- Skincare (profile beauty_skincare)
+  # No App Store / Google Play apps: YouTube comments, news headlines (and Reddit/Mastodon when enabled).
+  # youtube_queries are searched (1 call each from the 100/day search cap); only videos whose title
+  # names the brand are kept, and their comments count without repeating the name.
+
+  - name: Laneige
+    group: Skincare
+    profile: beauty_skincare
+    is_own: true
+    keywords: [laneige]
+    youtube_queries: [Laneige review, Laneige lip sleeping mask]
+
+  - name: SKIN1004
+    group: Skincare
+    profile: beauty_skincare
+    is_own: false
+    keywords: [skin1004, skin 1004]   # the Madagascar Centella line; "centella" alone is an ingredient
+    youtube_queries: [SKIN1004 centella review]
+
+  - name: Cosrx
+    group: Skincare
+    profile: beauty_skincare
+    is_own: false
+    keywords: [cosrx]
+    youtube_queries: [Cosrx review, Cosrx snail mucin]
+
+  - name: Innisfree
+    group: Skincare
+    profile: beauty_skincare
+    is_own: false
+    keywords: [innisfree]
+    exclude: [Lake Isle of Innisfree, Isle of Innisfree, Innisfree Hotels, Innisfree Hotel]
+    exclude_if: [Yeats, poem, poetry, Sligo]   # W. B. Yeats' poem and the island in County Sligo
+    youtube_queries: [Innisfree review]
+
+  # ---------------------------------------------------------------- Stationery (profile stationery)
+  # Every name here is also something else, so each needs a stationery word nearby (require_context,
+  # case-insensitive, simple plurals match). News about the listed companies is kept via
+  # "Industries", "Hindustan Pencils" and "Kokuyo". Keywords are lowercase (any case): buyers write
+  # "Doms", "DOMS" and "doms" alike, and the context words already keep out the other meanings.
+  # Checked with `python manage_brands.py dry-run --group Stationery` on 2026-10-13.
+
+  - name: DOMS
+    group: Stationery
+    profile: stationery
+    is_own: true
+    keywords: [doms]
+    require_context: [pencil, stationery, eraser, sharpener, crayon, colour, color, sketch, sketchbook, art,
+                      drawing, pen, marker, highlighter, compass, geometry box, scale, school, kit, oil pastel,
+                      notebook, Industries]
+    exclude_if: [soreness, sore, muscle, muscles, workout, gym, leg day, recovery, lifting, stretching]   # DOMS = muscle soreness
+    youtube_queries: [DOMS pencil review, DOMS stationery]
+
+  - name: Apsara
+    group: Stationery
+    profile: stationery
+    is_own: false
+    keywords: [apsara, aspara]   # "Aspara" is a common misspelling
+    require_context: [pencil, eraser, sharpener, stationery, extra dark, platinum, drawing, sketch, sketchbook,
+                      school, pen, gel pen, brush pen, crayon, colour, color, kit, art, Hindustan Pencils]
+    exclude: [Apsara Ice Cream, Apsara Ice Creams, Apsara reactor, Apsara-U]
+    exclude_if: [reactor, BARC, Angkor, Cambodia, ice cream, dance, dancer]   # ISRO/BARC reactor, the celestial dancer
+    youtube_queries: [Apsara pencil review]
+
+  - name: Natraj
+    group: Stationery
+    profile: stationery
+    is_own: false
+    keywords: [natraj, nataraj]   # the brand writes "Nataraj"; buyers often write "Natraj"
+    require_context: [pencil, eraser, sharpener, stationery, school, drawing, sketch, pen, HB, kit,
+                      Hindustan Pencils]
+    exclude_if: [Shiva, temple, Nataraja, cinema, theatre, theater, dance]   # Shiva's dance, cinemas named Natraj
+    youtube_queries: [Nataraj pencil review]
+
+  - name: Camlin
+    group: Stationery
+    profile: stationery
+    is_own: false
+    keywords: [camlin, kokuyocamlin]   # also the @KokuyoCamlin handle
+    require_context: [pencil, colour, color, watercolor, watercolour, paint, crayon, marker, ink, pen, stationery,
+                      art, sketch, drawing, geometry box, kit, school, notebook, eraser, sharpener, sharpner,
+                      highlighter, gift box, pack, Kokuyo]
+    youtube_queries: [Camlin colours review, Camlin stationery]
