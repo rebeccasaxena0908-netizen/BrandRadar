@@ -2,6 +2,7 @@
 
     streamlit run app.py --server.port 8599 &
     python tools/screenshot.py --url http://localhost:8599 --out docs/screenshots --name step5
+    python tools/screenshot.py --group Stationery --name stationery   # another brand group
 
 Streamlit scrolls inside its own container and the theme sizes its blobs in vmax, so a "full page"
 capture with a giant viewport would distort the background. Instead each page is captured one
@@ -32,9 +33,10 @@ FIND_SCROLLER = """
 """
 
 
-def wait_until_rendered(page, timeout_ms: int = 60000) -> None:
+def wait_until_rendered(page, timeout_ms: int = 60000, charts: bool = True) -> None:
     page.wait_for_selector(".st-key-glass-header", timeout=timeout_ms)
-    page.wait_for_selector(".js-plotly-plot", timeout=timeout_ms)
+    if charts:  # a group with little data may show only empty states
+        page.wait_for_selector(".js-plotly-plot", timeout=timeout_ms)
     # Streamlit shows a "running" state while scripts execute; wait for it to settle, then fonts.
     page.wait_for_function("() => !document.querySelector('[data-testid=\"stStatusWidget\"] *')", timeout=timeout_ms)
     page.evaluate("() => document.fonts.ready")
@@ -77,12 +79,21 @@ def motion_score(page) -> float:
     return ImageStat.Stat(diff).mean[0] / 255 * 100
 
 
+def choose_group(page, group: str) -> None:
+    """Pick a brand group in the dashboard's Group selectbox and wait for the rerun."""
+    page.locator('[data-testid="stSelectbox"]').filter(has_text="Group").locator('[data-baseweb="select"]').click()
+    page.get_by_role("option", name=group, exact=True).click()
+    page.wait_for_timeout(1500)
+    wait_until_rendered(page, charts=False)
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--url", default="http://localhost:8501")
     parser.add_argument("--out", type=Path, default=Path("docs/screenshots"))
     parser.add_argument("--name", default="dashboard")
     parser.add_argument("--only", choices=sorted(VIEWPORTS), help="capture one viewport only")
+    parser.add_argument("--group", help="brand group to show (default: the dashboard's first group)")
     parser.add_argument("--motion", action="store_true", help="also measure background motion (desktop)")
     parser.add_argument(
         "--browser", default="chrome",
@@ -103,6 +114,8 @@ def main(argv: list[str] | None = None) -> int:
             started = time.perf_counter()
             page.goto(args.url, wait_until="networkidle")
             wait_until_rendered(page)
+            if args.group:
+                choose_group(page, args.group)
             image = stitched_capture(page, width, height, scale)
             path = args.out / f"{args.name}-{label}.png"
             image.save(path, optimize=True)

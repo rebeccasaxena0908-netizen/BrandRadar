@@ -231,14 +231,27 @@ def matches_brand(text: str, brand: BrandSpec) -> bool:
     return reject_reason(text, brand) is None
 
 
+MIN_COMMENT_WORDS = 3  # YouTube comments: shorter ones must name the brand ("Sketch book" is a poll answer)
+
+
+def too_short_unnamed(text: str, brand: BrandSpec) -> bool:
+    """A comment under MIN_COMMENT_WORDS words (emoji don't count) that doesn't name the brand says
+    nothing about it: giveaway and poll answers, "Nice", "❤️"."""
+    if len(re.findall(r"\w+", text)) >= MIN_COMMENT_WORDS:
+        return False
+    return not any(_phrase_pattern(k).search(text) for k in brand.keywords)
+
+
 def still_matches(source: str, text: str, url: str | None, brand: BrandSpec) -> bool:
     """Would a stored mention still be collected under the brand's current rules? Mirrors the sources:
-    dev.to items come from the brand's tag, YouTube comments from a video whose title named the brand, and
-    posts in the brand's own subreddit don't need the name; everything else must name the brand.
-    exclude_if always applies."""
+    dev.to items come from the brand's tag, YouTube comments from a video whose title named the brand
+    (very short ones must name it), and posts in the brand's own subreddit don't need the name; everything
+    else must name the brand. exclude_if always applies."""
     if excluded_by_context(text, brand):
         return False
-    if source in ("devto", "youtube"):
+    if source == "youtube":
+        return not too_short_unnamed(text, brand)
+    if source == "devto":
         return True
     if source == "reddit" and url and any(f"/r/{s.lower()}/" in url.lower() for s in brand.subreddits):
         return True

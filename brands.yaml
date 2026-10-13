@@ -158,15 +158,18 @@ brands:
     exclude_if: [reactor, BARC, Angkor, Cambodia, ice cream, dance, dancer]   # ISRO/BARC reactor, the celestial dancer
     youtube_queries: [Apsara pencil review]
 
-  - name: Natraj
+  - name: Nataraj
     group: Stationery
     profile: stationery
     is_own: false
-    keywords: [natraj, nataraj]   # the brand writes "Nataraj"; buyers often write "Natraj"
+    # Official spelling is "Nataraj" (Hindustan Pencils); buyers often write "Natraj". Lowercase keywords
+    # match any case, and "nataraj" already covers "Nataraj 621" / "Nataraj pencil", so those variants
+    # only go in youtube_queries (extra keywords would just add duplicate HN/news/Reddit searches).
+    keywords: [nataraj, natraj]
     require_context: [pencil, eraser, sharpener, stationery, school, drawing, sketch, pen, HB, kit,
-                      Hindustan Pencils]
+                      Hindustan Pencils, "621"]   # 621 HB is the flagship pencil
     exclude_if: [Shiva, temple, Nataraja, cinema, theatre, theater, dance]   # Shiva's dance, cinemas named Natraj
-    youtube_queries: [Nataraj pencil review]
+    youtube_queries: [Nataraj pencil review, Nataraj 621]
 
   - name: Camlin
     group: Stationery

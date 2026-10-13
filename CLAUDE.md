@@ -49,6 +49,7 @@ python collector.py [--once]                                        # fetch -> N
 scripts/start.sh                                                    # collector (background) + dashboard
 python seed_demo.py && BRAND_RADAR_DEMO=1 streamlit run app.py      # demo database + dashboard on it
 python tools/screenshot.py --url http://localhost:8501 --name stepN --motion   # 1440px + 390px captures
+python tools/screenshot.py --group Stationery --name industry-stationery     # another brand group
 ```
 
 ## Layout notes
@@ -92,8 +93,9 @@ python tools/screenshot.py --url http://localhost:8501 --name stepN --motion   #
   to the real database, and the collector refuses demo mode.
 - Brand matching: `exclude` phrases are removed before matching; `exclude_if` words drop the mention.
   `brands.keywords` prefixes: `-` exclude, `!` exclude_if, `r/` brand subreddit. `still_matches()` in
-  `sources/base.py` is the single rule for "would this stored mention still be collected" (dev.to items
-  and own-subreddit Reddit posts don't need the brand name); keep it in step with the sources.
+  `sources/base.py` is the single rule for "would this stored mention still be collected" (dev.to items,
+  YouTube comments and own-subreddit Reddit posts don't need the brand name, but YouTube comments under
+  3 words must name it: `too_short_unnamed`); keep it in step with the sources.
 - Social sources: Reddit (PRAW, optional, posts + top-level comments + brand subreddits), Mastodon
   (public hashtag timelines, English, opted-in only), dev.to (brand tag). dev.to is in
   `TOPIC_EXCLUDED_SOURCES`: makers' self-promotion polluted complaint topics and caused a false spike

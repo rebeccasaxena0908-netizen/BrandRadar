@@ -74,12 +74,15 @@ def test_comments_of_videos_whose_title_names_the_brand() -> None:
         thread("c1", "The berry one smells amazing but it is so sticky"),
         thread("c2", "Enter my giveaway!!"),  # exclude_if
         thread("c3", "Bought it twice, the pot is not hygienic", author="a"),
+        thread("c4", "Sketch book 📖", author="b"),  # a poll answer: too short and doesn't name the brand
+        thread("c5", "Laneige forever", author="c"),  # short but names it
     ]})
     store = MemoryStore()
     yt = make(store)
     found = yt.fetch(LANEIGE, SINCE)
-    assert [m.external_id for m in found] == ["c1", "c3"]  # comments don't need to repeat the name
-    assert found[0].url == "https://www.youtube.com/watch?v=v1&lc=c1" and found[0].source == "youtube"
+    assert sorted(m.external_id for m in found) == ["c1", "c3", "c5"]  # comments don't need to repeat the name
+    c1 = next(m for m in found if m.external_id == "c1")
+    assert c1.url == "https://www.youtube.com/watch?v=v1&lc=c1" and c1.source == "youtube"
     assert set(store.videos) == {"v1"} and store.videos["v1"]["title"].startswith("Laneige Lip Sleeping Mask &")
     assert [r for _, r in yt.rejected] == ["name not found"]
     # the key travels in a header, never in the URL (so it can't end up in logs or fetch_runs)

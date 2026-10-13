@@ -5,8 +5,8 @@ Per brand and cycle:
    fetch. Only videos whose *title* names the brand (same matching rules as every source) are kept and
    remembered in `youtube_videos`.
 2. commentThreads.list on the newest remembered videos (YOUTUBE_MAX_VIDEOS, up to YOUTUBE_COMMENT_PAGES
-   pages of 100). Comments don't have to repeat the brand name (the video is about it); exclude_if still
-   applies. Video titles themselves are the creator's words and are not stored as mentions.
+   pages of 100). Comments don't have to repeat the brand name (the video is about it), except very short
+   ones (poll and giveaway answers like "Sketch book"); exclude_if still applies. Video titles themselves are the creator's words and are not stored as mentions.
 
 Quota (checked 2026-10): search.list has its own cap of 100 calls a day; commentThreads.list costs 1 unit
 of the 10,000 a day. Both reset at midnight Pacific time. Spending is counted in `api_usage` and the source
@@ -35,6 +35,7 @@ from config import settings
 from db.models import Analysis, ApiUsage, Mention, YoutubeVideo
 from sources.base import (
     BaseSource, BrandSpec, HttpClient, RateLimiter, RawMention, cap_per_author, excluded_by_context, make_session,
+    too_short_unnamed,
     utc_now,
 )
 
@@ -262,7 +263,7 @@ class YouTubeSource(BaseSource):
                 top = ((item.get("snippet") or {}).get("topLevelComment") or {})
                 s = top.get("snippet") or {}
                 text = (s.get("textOriginal") or s.get("textDisplay") or "").strip()
-                if not text or excluded_by_context(text, brand):
+                if not text or excluded_by_context(text, brand) or too_short_unnamed(text, brand):
                     continue
                 mentions.append(RawMention(
                     source=self.name, external_id=item["id"], text=text, created_at=parse_time(s["publishedAt"]),

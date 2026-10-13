@@ -147,6 +147,9 @@ def test_still_matches_mirrors_each_source() -> None:
     own = "https://www.reddit.com/r/ObsidianMD/comments/abc/x/"
     assert still_matches("reddit", "sync broke again", own, brand)
     assert not still_matches("reddit", "sync broke again", "https://www.reddit.com/r/productivity/comments/a/x/", brand)
+    assert still_matches("youtube", "sync broke again", None, brand)  # the video's title named the brand
+    assert not still_matches("youtube", "Sketch book", None, brand)  # too short and unnamed
+    assert still_matches("youtube", "Obsidian ❤️", None, brand)
     assert still_matches("mastodon", "Moving to #Obsidian", None, brand)
     assert not still_matches("hackernews", "an obsidian blade", None, brand)
 
