@@ -277,6 +277,57 @@ def check_extras() -> None:
         report(False, f"Demo database {demo_db}", "not built — optional: python seed_demo.py", warn_only=True)
 
 
+CHROME_PATHS = (
+    "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
+    r"C:\Program Files\Google\Chrome\Application\chrome.exe",
+    r"C:\Program Files (x86)\Google\Chrome\Application\chrome.exe",
+)
+
+
+def find_chrome() -> str | None:
+    """The installed Chrome that kaleido draws the PDF charts with (looked up, never downloaded)."""
+    import shutil
+
+    for path in CHROME_PATHS:
+        if Path(path).exists():
+            return path
+    for name in ("google-chrome", "google-chrome-stable", "chromium", "chromium-browser"):
+        if (found := shutil.which(name)):
+            return found
+    return None
+
+
+def check_reports() -> None:
+    section("Reports and notifications (Step 9)")
+    fonts = Path(__file__).resolve().parent / "ui" / "fonts"
+    missing = [f for f in ("Figtree-Regular.ttf", "Figtree-SemiBold.ttf", "Figtree-Bold.ttf", "Montserrat-SemiBold.ttf",
+                           "Montserrat-Bold.ttf") if not (fonts / f).exists()]
+    report(not missing, "PDF fonts (Figtree, Montserrat)", f"missing: {', '.join(missing)}" if missing else "ui/fonts")
+    chrome = find_chrome()
+    report(chrome is not None, "Google Chrome for PDF charts", chrome or "not found — install Chrome to build PDF reports",
+           warn_only=True)
+    try:
+        from sqlalchemy import text
+
+        from config import settings
+        from db.session import get_engine
+    except Exception as exc:  # noqa: BLE001
+        report(False, "Import database modules", repr(exc))
+        return
+    email = (f"to {', '.join(settings.notify_email_to)} via {settings.smtp_host}:{settings.smtp_port}"
+             if settings.email_enabled else "off — optional, see README 'Notifications'")
+    report(settings.email_enabled, "Email notifications", email, warn_only=True)
+    report(settings.slack_enabled, "Slack notifications", "webhook set" if settings.slack_enabled else
+           "off — optional, see README 'Notifications'", warn_only=True)
+    try:
+        with get_engine().connect() as conn:
+            rows = conn.execute(text("SELECT status, COUNT(*) FROM notifications GROUP BY status")).all()
+        counts = ", ".join(f"{n} {status}" for status, n in rows) or "none sent yet"
+        report(not any(status == "failed" for status, _ in rows), "Notifications sent", counts, warn_only=True)
+    except Exception as exc:  # noqa: BLE001
+        report(False, "Read notifications", f"{exc!r} — run db/schema.sql to create the table")
+
+
 def main() -> int:
     print("Brand Radar setup check")
     check_python()
@@ -286,6 +337,7 @@ def main() -> int:
         check_database()
         check_brands()
         check_extras()
+        check_reports()
 
     print()
     if failures:

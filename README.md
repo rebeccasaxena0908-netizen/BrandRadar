@@ -35,6 +35,10 @@ It works for any industry. Out of the box it tracks three brand groups, each wit
   - a 20-second executive summary built from the numbers, with representative quotes
 
   The KPIs, alerts and "Updated … ago" status refresh every 60 s without reloading the page.
+- **Weekly PDF report** per brand (2–3 pages in the Blush glass style), **CSV export** of the filtered
+  mentions, both downloadable from the dashboard.
+- **Notifications** (optional): new spike alerts by email and/or Slack after each collector cycle, and the
+  weekly PDF every Monday morning.
 - **Demo mode** with a separate, fictional dataset, so the dashboard can be shown without real data.
 
 ## Tech stack
@@ -48,6 +52,7 @@ It works for any industry. Out of the box it tracks three brand groups, each wit
 | NLP | PyTorch, Hugging Face Transformers, sentence-transformers, BERTopic (UMAP + HDBSCAN) |
 | Scheduling | APScheduler |
 | Dashboard | Streamlit, Plotly, `wordcloud` |
+| Reports | ReportLab (PDF, fonts embedded), kaleido 1.x (Plotly charts drawn by the installed Google Chrome), `smtplib`, Slack incoming webhooks |
 | Tests | pytest with mocked HTTP and models (no downloads), Streamlit AppTest, Playwright screenshots |
 
 ## How it works
@@ -135,6 +140,8 @@ run on the CPU (or an NVIDIA GPU if PyTorch sees one), so expect it to take long
 | Import a CSV (`source, author, text, date, rating`) | `python fetch.py --csv file.csv --brand Notion` | same |
 | Add a brand interactively | `python manage_brands.py add` | same |
 | Test a brand's matching (nothing stored) | `python manage_brands.py dry-run --brand Nataraj` | same |
+| Weekly PDF report (last complete week) | `python -m reports.weekly [--brand X \| --group G] [--week 2026-W41]` | same |
+| Send a test notification | `python -m reports.notify --test` | same |
 | Tests | `python -m pytest -q` | same |
 
 The dashboard opens at <http://localhost:8501>. In PowerShell, `$env:BRAND_RADAR_DEMO` stays set for that
@@ -147,6 +154,84 @@ with a message. If a stage fails, the error is logged to `collector_runs` and th
 days for all three groups, built from templates (no real people). Each group uses its profile's
 categories, features and sources, and has complaint topics in every priority quadrant plus spike alerts. Your real data is never touched: the seed script refuses to
 write to `DB_NAME`, and the collector refuses to run in demo mode. Re-running `seed_demo.py` rebuilds it.
+
+## Exports and weekly report
+
+**Weekly PDF** (`reports/weekly.py`): one report per brand and ISO week (Monday–Sunday), 2–3 A4 pages in the
+Blush glass palette, with Montserrat and Figtree embedded:
+
+1. **Overview:** KPIs with week-over-week change, the executive summary, daily sentiment against the
+   competitors in the same group, and complaints per category from the brand's industry profile.
+2. **Priorities:** the priority matrix, the top Fix now and Quick wins topics (with a quote each), and
+   the week's spike alerts.
+3. **Competitors and voices:** the feature radar against the group's competitors, and one negative,
+   one neutral and one positive quote.
+
+Sections with too little data (common for Skincare and Stationery for now) show a short "not enough data
+yet" note instead of an empty chart. The PDF uses the same queries, maths and Plotly figures as the
+dashboard. Charts are drawn by your installed Google Chrome through kaleido; nothing is sent anywhere.
+Files go to `reports/output/brandradar-<brand>-<week>.pdf` (git-ignored). In demo mode every page carries
+a "Demo data" mark.
+
+```bash
+python -m reports.weekly                        # the own brand of every group, last complete week
+python -m reports.weekly --group Skincare --week 2026-W41
+BRAND_RADAR_DEMO=1 python -m reports.weekly --brand DOMS
+```
+
+**From the dashboard:** the Export card at the bottom builds the PDF for the selected brand on click, for the
+last full week up to the end of the date filter. It also downloads the mentions on screen as CSV (brands,
+dates and sources from the filters, with sentiment, emotion, category, feature and topic). The CSV only
+contains what is stored, so YouTube comments are at most 30 days old, as YouTube's policies require. Author
+handles are left out, and cells that start with `=`, `+`, `-` or `@` are escaped so spreadsheet apps don't
+run them as formulas.
+
+## Notifications
+
+Optional, and off until you add settings to `.env`. With email and/or Slack set up:
+
+- after each collector cycle, **new spike alerts** are sent in one message (brand, topic, profile category,
+  this week vs last week, a quote). Only alerts from the last 7 days are sent, so turning notifications on
+  doesn't deliver old history;
+- every **Monday at 08:00 Asia/Kolkata** (`NOTIFY_TIMEZONE`, `NOTIFY_WEEKLY_HOUR`), the weekly report for
+  each group's own brand (`NOTIFY_WEEKLY_BRANDS`) is emailed with the PDFs attached. Slack incoming
+  webhooks can't carry files, so Slack gets a short summary instead. If the collector was off at 08:00,
+  the next cycle within 24 hours sends it.
+
+Every alert and weekly report goes out **at most once per channel**: it is recorded in the `notifications`
+table before sending, and a failed send is retried in the next cycles (up to 3 attempts). Demo mode never
+sends. Check your settings with `python -m reports.notify --test`, which sends one test message to each
+configured channel. `python check_setup.py` shows what is configured and what has been sent.
+
+**Email with a Gmail app password**
+
+1. Turn on **2-Step Verification** for the Google account you want to send from
+   ([myaccount.google.com/security](https://myaccount.google.com/security)). App passwords only exist
+   with 2-Step Verification on, and work or school accounts may have them disabled by their admin.
+2. Open [myaccount.google.com/apppasswords](https://myaccount.google.com/apppasswords), name it
+   "Brand Radar" and copy the 16-character password. Google shows it only once.
+3. In `.env`:
+
+   ```ini
+   SMTP_HOST=smtp.gmail.com
+   SMTP_PORT=587
+   SMTP_USER=you@gmail.com
+   SMTP_PASSWORD=abcd efgh ijkl mnop   # the app password (spaces are ignored), never your normal password
+   NOTIFY_EMAIL_TO=you@gmail.com,teammate@example.com
+   ```
+
+Any other SMTP server works the same way (port 587 uses STARTTLS, port 465 uses TLS from the start).
+
+**Slack incoming webhook**
+
+1. Go to [api.slack.com/apps](https://api.slack.com/apps), choose **Create New App → From scratch**, name it
+   "Brand Radar" and pick your workspace.
+2. Under **Incoming Webhooks**, switch **Activate Incoming Webhooks** on, click **Add New Webhook to
+   Workspace** and choose the channel.
+3. Copy the webhook URL (`https://hooks.slack.com/services/…`) into `.env` as `SLACK_WEBHOOK_URL=…`. Treat
+   it like a password: anyone with it can post to that channel. Brand Radar never logs it.
+
+Restart the collector after changing `.env`.
 
 ## Tracking another industry
 
@@ -278,7 +363,8 @@ db/                 schema.sql, models, session
 sources/            hackernews, appstore, playstore, youtube, news, mastodon, devto, reddit, csv_import,
                     shared HTTP + matching
 nlp/                pipeline (models, text, features, language, profiles), topics, priority
-ui/                 styles.css (approved theme), streamlit.css, components, data, insights
+ui/                 styles.css (approved theme), streamlit.css, components, data, insights, charts, fonts/
+reports/            weekly (PDF), render (charts via Chrome), export (CSV), notify (email, Slack), weeks
 tests/              pytest suite (mocked HTTP and models)
 docs/               ui-decisions.md, first-run-skincare-stationery.md, screenshots/
 ```

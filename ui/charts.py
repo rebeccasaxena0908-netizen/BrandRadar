@@ -155,3 +155,20 @@ def radar_figure(table: insights.FeatureTable, brand: Named, comps: Sequence[Nam
         legend=dict(y=-0.06, yanchor="top", x=0.5, xanchor="center"), margin=dict(l=64, r=64, t=24, b=40),
     )
     return fig
+
+
+def category_figure(this_week: pd.Series, last_week: pd.Series) -> go.Figure:
+    """Complaints per profile category: this week (berry) against last week (blush), largest at the top.
+    Both series are indexed by category label and already limited to the profile's complaint labels."""
+    order = list(this_week.add(last_week, fill_value=0).sort_values().index)
+    fig = go.Figure()
+    fig.add_trace(go.Bar(y=order, x=[int(last_week.get(c, 0)) for c in order], orientation="h", name="Last week",
+                         marker=dict(color="#F3BAC1"), hovertemplate="%{y}: %{x}<extra>last week</extra>"))
+    fig.add_trace(go.Bar(y=order, x=[int(this_week.get(c, 0)) for c in order], orientation="h", name="This week",
+                         marker=dict(color=BERRY), text=[int(this_week.get(c, 0)) or "" for c in order],
+                         textposition="outside", textfont=dict(family="Montserrat, sans-serif", size=11, color=BERRY),
+                         cliponaxis=False, hovertemplate="%{y}: %{x}<extra>this week</extra>"))
+    fig.update_layout(barmode="group", bargap=0.35, bargroupgap=0.08, legend=dict(y=1.02, traceorder="reversed"),
+                      xaxis=dict(showgrid=True, zeroline=False, rangemode="tozero"), yaxis=dict(showgrid=False),
+                      margin=dict(l=8, r=28, t=30, b=8))
+    return fig

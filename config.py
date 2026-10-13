@@ -68,6 +68,17 @@ class Settings:
     youtube_max_videos: int
     youtube_comment_pages: int
     news_min_interval: float
+    smtp_host: str
+    smtp_port: int
+    smtp_user: str
+    smtp_password: str
+    smtp_from: str
+    notify_email_to: tuple[str, ...]
+    slack_webhook_url: str
+    notify_timezone: str
+    notify_weekly_hour: int
+    notify_weekly_brands: tuple[str, ...]
+    dashboard_url: str
 
     @property
     def database_url(self) -> str:
@@ -84,6 +95,14 @@ class Settings:
     @property
     def youtube_enabled(self) -> bool:
         return bool(self.youtube_api_key)
+
+    @property
+    def email_enabled(self) -> bool:
+        return bool(self.smtp_host and self.smtp_from and self.notify_email_to)
+
+    @property
+    def slack_enabled(self) -> bool:
+        return bool(self.slack_webhook_url)
 
 
 def _get_bool(name: str) -> bool:
@@ -134,6 +153,18 @@ def load_settings() -> Settings:
         youtube_max_videos=_get_int("YOUTUBE_MAX_VIDEOS", 30),
         youtube_comment_pages=_get_int("YOUTUBE_COMMENT_PAGES", 2),
         news_min_interval=_get_float("NEWS_MIN_INTERVAL", 6.0),
+        # notifications (optional): email via SMTP and/or a Slack incoming webhook
+        smtp_host=os.getenv("SMTP_HOST", "").strip(),
+        smtp_port=_get_int("SMTP_PORT", 587),
+        smtp_user=os.getenv("SMTP_USER", "").strip(),
+        smtp_password=os.getenv("SMTP_PASSWORD", "").replace(" ", ""),  # Gmail shows app passwords in groups of 4
+        smtp_from=(os.getenv("SMTP_FROM", "") or os.getenv("SMTP_USER", "")).strip(),
+        notify_email_to=_get_list("NOTIFY_EMAIL_TO", ""),
+        slack_webhook_url=os.getenv("SLACK_WEBHOOK_URL", "").strip(),
+        notify_timezone=os.getenv("NOTIFY_TIMEZONE", "Asia/Kolkata"),
+        notify_weekly_hour=_get_int("NOTIFY_WEEKLY_HOUR", 8),
+        notify_weekly_brands=_get_list("NOTIFY_WEEKLY_BRANDS", "own"),
+        dashboard_url=os.getenv("DASHBOARD_URL", "http://localhost:8501").strip(),
     )
 
 

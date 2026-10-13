@@ -30,6 +30,10 @@ watchdog==6.0.0   # faster file watching for streamlit
 plotly==6.3.0
 wordcloud==1.9.4
 
+# Reports (Step 9): PDF layout, and Plotly charts rendered by the installed Google Chrome
+reportlab==4.4.4
+kaleido==1.1.0
+
 # Tests
 pytest==8.3.4
 responses==0.25.3

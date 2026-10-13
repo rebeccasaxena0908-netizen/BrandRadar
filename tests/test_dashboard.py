@@ -277,3 +277,32 @@ def test_source_options_show_core_sources_plus_those_with_data() -> None:
     assert list(opts) == ["hackernews", "appstore", "playstore", "devto", "mastodon", "twitter"]
     assert opts["devto"] == "dev.to" and opts["twitter"] == "Twitter"  # CSV sources get a readable name
     assert "reddit" not in opts  # no Reddit data yet -> no empty pill
+
+
+def test_export_card_offers_csv_and_a_pdf_button(app) -> None:  # type: ignore[no-untyped-def]
+    at = app.run()
+    assert not at.exception
+    assert len(at.get("download_button")) == 1  # CSV; the PDF is only built on click (Chrome)
+    assert at.button(key="export-make-pdf").label == "Create PDF report"
+    notes = " ".join(m.value for m in at.markdown if 'class="br-note"' in m.value)
+    assert "mentions with their analysis" in notes and "YouTube comments are kept for 30 days" in notes
+    assert "2–3 pages" in notes
+
+
+def test_built_pdf_is_offered_for_download(app) -> None:  # type: ignore[no-untyped-def]
+    # AppTest can't rerun this page after a click (dynamic multiselect options), so the state the click
+    # leaves behind is set up front: (brand id, week, demo) -> PDF bytes
+    from reports.weeks import Week
+
+    week = Week.last_complete(TODAY + timedelta(days=1))
+    app.session_state["pdf_report"] = ((1, week.label, False), b"%PDF-1.4 fake")
+    at = app.run()
+    assert not at.exception and len(at.get("download_button")) == 2
+    assert not [b for b in at.button if b.key == "export-make-pdf"]  # already built: no second build button
+
+
+def test_report_week_is_the_last_full_week_up_to_the_end_date() -> None:
+    from reports.weeks import Week
+
+    assert Week.last_complete(date(2026, 10, 11) + timedelta(days=1)) == Week(2026, 41)  # end on a Sunday: that week
+    assert Week.last_complete(date(2026, 10, 14) + timedelta(days=1)) == Week(2026, 41)  # mid-week: the week before

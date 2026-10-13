@@ -52,6 +52,8 @@ python seed_demo.py && BRAND_RADAR_DEMO=1 streamlit run app.py      # demo datab
 python tools/screenshot.py --url http://localhost:8501 --name stepN --motion   # 1440px + 390px captures
 python tools/screenshot.py --group Stationery --name industry-stationery     # another brand group
 python tools/screenshot.py --reduced-motion ...                               # still background, for diffing
+python -m reports.weekly [--brand X | --group G] [--week 2026-W41]  # weekly PDF -> reports/output/
+python -m reports.notify --test | --alerts | --weekly               # email / Slack (optional)
 ```
 
 ## Layout notes
@@ -92,6 +94,13 @@ python tools/screenshot.py --reduced-motion ...                               # 
   spawn Process + Queue, never a Pool: a dead Pool worker hangs `apply`). Ctrl+C / SIGTERM set `STOP`;
   `install_signal_handlers` restores SIGINT because background jobs of a script start with it ignored.
   Each cycle is a `collector_runs` row (ok / partial / failed); the header status reads it.
+- Reports (Step 9): `reports/weekly.py` builds the PDF from `ui/data.py` + `ui/insights.py` + `ui/charts.py`
+  with ReportLab; `reports/render.py` draws charts with kaleido 1.x in the installed Chrome (SVG with the
+  fonts embedded as data URIs, then rasterised: Plotly's PNG export can't see page fonts). Tests use
+  `StubRenderer` (no Chrome). Keep PDF fill alphas >= 0.04 (Quartz turns ~1% alpha fills grey). Weeks are
+  ISO Monday-Sunday in UTC dates (`reports/weeks.py`). Notifications (`reports/notify.py`) claim a
+  `notifications` row before sending (at most once per kind/ref/channel); the collector's optional
+  `notify` stage sends alerts, its Monday 08:00 Asia/Kolkata job sends the weekly report; demo never sends.
 - Demo data (`seed_demo.py` THEMES) covers all three groups with each profile's categories/features;
   `tests/test_demo_and_status.py` checks every brand is full and every own brand has an alert.
 - Demo data lives in `brand_radar_demo` (`BRAND_RADAR_DEMO=1` switches `config`); never write demo data

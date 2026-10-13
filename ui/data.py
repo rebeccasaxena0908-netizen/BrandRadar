@@ -68,6 +68,33 @@ def query_mentions(
     return df[columns]
 
 
+EXPORT_COLUMNS = ["brand", "brand_group", "source", "created_at", "language", "text", "url", "rating", "sentiment",
+                  "sentiment_score", "emotion", "category", "feature", "topic"]
+
+
+def query_export_mentions(
+    engine: Engine, brand_ids: tuple[int, ...], start: date, end: date, sources: tuple[str, ...]
+) -> pd.DataFrame:
+    """The dashboard's filtered mentions with their analysis, for the CSV download. Only what is stored
+    (YouTube comments are purged after 30 days); author handles are left out on purpose."""
+    if not brand_ids or not sources:
+        return pd.DataFrame(columns=EXPORT_COLUMNS)
+    stmt = text(
+        "SELECT b.name AS brand, b.brand_group, m.source, m.created_at, m.language, m.text, m.url, m.rating, "
+        "a.sentiment, a.sentiment_score, a.emotion, a.category, a.feature, t.label AS topic "
+        "FROM mentions m JOIN brands b ON b.id = m.brand_id "
+        "LEFT JOIN analysis a ON a.mention_id = m.id LEFT JOIN topics t ON t.id = a.topic_id "
+        "WHERE m.brand_id IN :brands AND m.source IN :sources AND m.created_at >= :start AND m.created_at < :end "
+        "ORDER BY m.created_at DESC"
+    ).bindparams(bindparam("brands", expanding=True), bindparam("sources", expanding=True))
+    with engine.connect() as conn:
+        df = pd.read_sql(stmt, conn, params={
+            "brands": list(brand_ids), "sources": list(sources),
+            "start": datetime.combine(start, time.min), "end": datetime.combine(end + timedelta(days=1), time.min),
+        })
+    return df[EXPORT_COLUMNS]
+
+
 def query_sources_with_data(engine: Engine, brand_ids: tuple[int, ...] | None = None) -> list[str]:
     stmt = text("SELECT DISTINCT source FROM mentions")
     params: dict[str, Any] = {}
@@ -315,6 +342,11 @@ def brands() -> pd.DataFrame:
 @st.cache_data(ttl=60, show_spinner=False)
 def mentions(brand_ids: tuple[int, ...], start: date, end: date, sources: tuple[str, ...]) -> pd.DataFrame:
     return query_mentions(get_engine(), brand_ids, start, end, sources)
+
+
+@st.cache_data(ttl=60, show_spinner=False)
+def export_mentions(brand_ids: tuple[int, ...], start: date, end: date, sources: tuple[str, ...]) -> pd.DataFrame:
+    return query_export_mentions(get_engine(), brand_ids, start, end, sources)
 
 
 @st.cache_data(ttl=60, show_spinner=False)

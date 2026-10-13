@@ -15,6 +15,8 @@ import streamlit as st
 from config import settings
 from nlp.models import EMOTIONS
 from nlp.profiles import SOFTWARE, get_profile
+from reports.export import csv_name, mentions_csv, slug
+from reports.weeks import Week
 from ui import charts, data, insights
 from ui.components import (
     BERRY, COMPLAINT_CLOUD_COLOURS, EMOTION_COLOURS, INK, PRAISE_CLOUD_COLOURS, SENTIMENT_COLOURS,
@@ -377,6 +379,55 @@ def executive_summary(brand: pd.Series, comps: list[pd.Series], matrix: pd.DataF
                     unsafe_allow_html=True)
 
 
+# ---------------------------------------------------------------- export
+
+
+def report_week(end: date) -> Week:
+    """The last full Monday-Sunday week up to the end of the date filter."""
+    return Week.last_complete(end + timedelta(days=1))
+
+
+def export_card(brand: pd.Series, ids: tuple[int, ...], start: date, end: date, sources: tuple[str, ...]) -> None:
+    """Downloads only: the weekly PDF (built on click, kept for this session) and the filtered mentions as
+    CSV. Both read MySQL; the PDF's charts are drawn by the local Chrome (no external API)."""
+    week = report_week(end)
+    with glass_card("export"):
+        section_title("Export", f"Weekly PDF report for {brand['name']} and the mentions on screen as CSV")
+        left, right = st.columns(2, gap="medium")
+        with left:
+            key = (int(brand["id"]), week.label, settings.demo)
+            ready = st.session_state.get("pdf_report")
+            if not ready or ready[0] != key:
+                slot = st.empty()  # the build button disappears once the PDF is ready (same run, no rerun)
+                if slot.button("Create PDF report", key="export-make-pdf", icon=":material/picture_as_pdf:"):
+                    slot.empty()
+                    with st.spinner(f"Building the {week.label} report…"):
+                        try:
+                            from reports.weekly import pdf_bytes
+
+                            st.session_state["pdf_report"] = (key, pdf_bytes(data.get_engine(), int(brand["id"]), week))
+                        except Exception as exc:  # noqa: BLE001 — e.g. Chrome missing; say so in the card
+                            st.session_state["pdf_report"] = None
+                            st.markdown(f'<div class="br-note br-export-error">Could not build the report: '
+                                        f'{html.escape(type(exc).__name__)}: {html.escape(str(exc)[:200])}</div>',
+                                        unsafe_allow_html=True)
+                ready = st.session_state.get("pdf_report")
+            if ready and ready[0] == key:
+                st.download_button("Download PDF report", data=ready[1], key="export-pdf", type="primary",
+                                   file_name=f"brandradar-{slug(str(brand['name']))}-{week.label}.pdf",
+                                   mime="application/pdf", icon=":material/download:")
+            st.markdown(f'<div class="br-note">{week.span} ({week.label}) · 2–3 pages: KPIs, trend, priority matrix, '
+                        'feature radar, alerts and quotes</div>', unsafe_allow_html=True)
+        with right:
+            rows = data.export_mentions(ids, start, end, sources)
+            st.download_button("Download CSV", data=mentions_csv(rows), key="export-csv", disabled=rows.empty,
+                               file_name=csv_name(str(brand["name"]), start, end), mime="text/csv",
+                               icon=":material/table_view:")
+            st.markdown(f'<div class="br-note">{len(rows):,} mentions with their analysis · {start:%d %b} – {end:%d %b} · '
+                        'selected brands and sources. Only what is stored: YouTube comments are kept for 30 days.</div>',
+                        unsafe_allow_html=True)
+
+
 # ---------------------------------------------------------------- page
 
 
@@ -422,6 +473,7 @@ def main() -> None:
         table = feature_radar(brand, comps, colours)
     with right:
         executive_summary(brand, comps, matrix, table, current, previous, days)
+    export_card(brand, ids, start, end, sources)
     st.markdown(f'<div class="br-footnote">{start:%d %b} – {end:%d %b %Y} · '
                 f'{", ".join(data.SOURCES.get(s, s.title()) for s in sources)} · data refreshes every 60 s</div>',
                 unsafe_allow_html=True)

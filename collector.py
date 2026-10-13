@@ -110,14 +110,23 @@ class NlpOutcome:
 
 
 @dataclass
+class NotifyOutcome:
+    summary: str
+    errors: list[str] = field(default_factory=list)
+
+
+@dataclass
 class Stages:
-    """Injectable so tests can mock every stage."""
+    """Injectable so tests can mock every stage. notify (after each cycle) and weekly (Monday job) are
+    optional: email/Slack only go out when configured (reports/notify.py)."""
 
     fetch: Callable[[datetime], FetchOutcome]
     pending: Callable[[], int]
     nlp: Callable[[], NlpOutcome]
     topics: Callable[[], int]
     priority: Callable[[], int]
+    notify: Callable[[], NotifyOutcome] | None = None
+    weekly: Callable[[], NotifyOutcome] | None = None
 
 
 def fetch_since(factory: sessionmaker[Session], now: datetime, pairs: list[tuple[str, int]] | None = None) -> datetime:
@@ -166,8 +175,22 @@ def real_stages(factory: sessionmaker[Session]) -> Stages:
         _, alerts = run_priority(factory)
         return len(alerts)
 
+    def notify() -> NotifyOutcome:
+        from db.session import get_engine
+        from reports.notify import after_cycle
+
+        out = after_cycle(get_engine())
+        return NotifyOutcome(out.summary, out.errors)
+
+    def weekly() -> NotifyOutcome:
+        from db.session import get_engine
+        from reports.notify import send_weekly
+
+        out = send_weekly(get_engine())
+        return NotifyOutcome(out.summary, out.errors)
+
     return Stages(fetch=fetch, pending=pending, nlp=lambda: run_in_child(_child_nlp),
-                  topics=lambda: run_in_child(_child_topics), priority=priority)
+                  topics=lambda: run_in_child(_child_topics), priority=priority, notify=notify, weekly=weekly)
 
 
 # --- heavy stages: these run in a spawned child process (see module docstring)
@@ -341,9 +364,19 @@ def run_cycle(factory: sessionmaker[Session], stages: Stages, now: datetime | No
         result.alerts_created = stages.priority()
         return f"{result.alerts_created} new alert(s)"
 
+    def do_notify() -> str:
+        assert stages.notify is not None
+        out = stages.notify()
+        result.errors += [f"notify: {e}" for e in out.errors]
+        return out.summary
+
+    steps: list[tuple[str, Callable[[], str]]] = [
+        ("fetch", do_fetch), ("nlp", do_nlp), ("topics", do_topics), ("priority", do_priority)]
+    if stages.notify is not None:
+        steps.append(("notify", do_notify))
     interrupted = False
     try:
-        for name, call in (("fetch", do_fetch), ("nlp", do_nlp), ("topics", do_topics), ("priority", do_priority)):
+        for name, call in steps:
             if STOP.is_set():
                 interrupted = True
                 break
@@ -360,7 +393,7 @@ def run_cycle(factory: sessionmaker[Session], stages: Stages, now: datetime | No
         log.info("cycle    INTERRUPTED after %.0fs", result.seconds)
         return result
 
-    if len(failed_stages) == 4:
+    if len([s for s in failed_stages if s != "notify"]) == 4:  # every data stage failed
         result.status = "failed"
     elif result.errors:
         result.status = "partial"
@@ -431,6 +464,21 @@ def run_forever(factory: sessionmaker[Session], stages: Stages, interval_hours: 
         next_run_time=datetime.now().astimezone(),  # first cycle right away
         max_instances=1, coalesce=True, misfire_grace_time=3600,
     )
+    if stages.weekly is not None:
+        from apscheduler.triggers.cron import CronTrigger
+
+        weekly = stages.weekly
+
+        def weekly_job() -> None:
+            try:
+                log.info("weekly   %s", weekly().summary)
+            except Exception as exc:  # noqa: BLE001 — the next cycle's notify stage catches up
+                log.error("weekly   FAILED  %s: %s", type(exc).__name__, exc)
+
+        # Monday morning in NOTIFY_TIMEZONE (default 08:00 Asia/Kolkata); no-op unless notifications are set up
+        scheduler.add_job(weekly_job, CronTrigger(day_of_week="mon", hour=settings.notify_weekly_hour, minute=0,
+                                                  timezone=settings.notify_timezone),
+                          id="weekly", max_instances=1, coalesce=True, misfire_grace_time=6 * 3600)
     log.info("collector started: a cycle every %g h; Ctrl+C to stop", interval_hours)
     try:
         scheduler.start()

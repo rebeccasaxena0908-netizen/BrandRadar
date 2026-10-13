@@ -23,3 +23,6 @@ hf_cache/
 # Collector
 .collector.lock
 logs/
+
+# Generated reports
+reports/output/

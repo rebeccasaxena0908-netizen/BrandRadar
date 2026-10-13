@@ -169,3 +169,13 @@ h1, h2, h3, h4 { font-family: Montserrat, sans-serif; color: var(--ink); }
   .br-wordmark span { font-size: 15px; letter-spacing: .26em; }
   .br-kpi { margin-bottom: calc(1rem - 10px); }
 }
+
+/* Export card (Step 9): berry pill buttons for the PDF and CSV downloads */
+[class*="st-key-export-"] button {
+  border-radius: 999px; border: 1px solid #E7CFCF; background: rgba(255,255,255,.7); color: #9E4A5A;
+  font-family: Figtree, sans-serif; font-weight: 600; padding: 6px 18px;
+}
+[class*="st-key-export-"] button:hover { border-color: #9E4A5A; color: #9E4A5A; background: #fff; }
+.st-key-export-pdf button { background: #9E4A5A; color: #fff; border-color: #9E4A5A; }
+.st-key-export-pdf button:hover { background: #8a3f4e; color: #fff; }
+.br-export-error { color: #D9536A; margin: 6px 0; }

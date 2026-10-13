@@ -269,3 +269,65 @@ def test_sigterm_and_ignored_sigint_both_become_keyboard_interrupt() -> None:
     finally:
         signal.signal(signal.SIGINT, old_int)
         signal.signal(signal.SIGTERM, old_term)
+
+
+# ---------------------------------------------------------------- notifications (Step 9)
+
+
+def test_notify_runs_after_priority_and_its_errors_make_the_cycle_partial(
+    factory: sessionmaker[Session], brands: list[BrandSpec]
+) -> None:
+    from collector import NotifyOutcome
+
+    rec = Recorder()
+    stages = rec.stages()
+    stages.notify = lambda: (rec.calls.append("notify"), NotifyOutcome("email: 1 alert(s)"))[1]
+    result = run_cycle(factory, stages, now=NOW)
+    assert rec.calls[-2:] == ["priority", "notify"] and result.status == "ok"
+    assert "notify" in runs(factory)[0].stage_seconds
+
+    stages.notify = lambda: NotifyOutcome("FAILED slack", ["slack: ConnectionError: down"])
+    result = run_cycle(factory, stages, now=NOW)
+    assert result.status == "partial" and result.errors == ["notify: slack: ConnectionError: down"]
+
+
+def test_notify_failing_alone_never_marks_the_cycle_failed(factory: sessionmaker[Session], brands: list[BrandSpec]) -> None:
+    stages = Recorder(fail=("fetch", "nlp", "topics", "priority")).stages()
+
+    def broken() -> collector.NotifyOutcome:
+        raise RuntimeError("smtp down")
+
+    stages.notify = broken
+    assert run_cycle(factory, stages, now=NOW).status == "failed"  # the four data stages failed
+    stages = Recorder().stages()
+    stages.notify = broken
+    assert run_cycle(factory, stages, now=NOW).status == "partial"
+
+
+def test_weekly_job_is_scheduled_monday_morning_in_india(monkeypatch: pytest.MonkeyPatch) -> None:
+    jobs: dict[str, object] = {}
+
+    class FakeScheduler:
+        def __init__(self, timezone: str) -> None:
+            pass
+
+        def add_job(self, func, trigger=None, **kwargs):  # type: ignore[no-untyped-def]
+            jobs[kwargs["id"]] = trigger
+
+        def start(self) -> None:
+            raise KeyboardInterrupt
+
+        def shutdown(self, wait: bool) -> None:
+            pass
+
+    import apscheduler.schedulers.blocking as blocking
+
+    monkeypatch.setattr(blocking, "BlockingScheduler", FakeScheduler)
+    stages = Recorder().stages()
+    stages.weekly = lambda: collector.NotifyOutcome("nothing new to send")
+    collector.run_forever(None, stages, 6)  # type: ignore[arg-type]
+    trigger = jobs["weekly"]
+    assert set(jobs) == {"cycle", "weekly"}
+    assert str(trigger.timezone) == "Asia/Kolkata"  # type: ignore[attr-defined]
+    fields = {f.name: str(f) for f in trigger.fields}  # type: ignore[attr-defined]
+    assert (fields["day_of_week"], fields["hour"], fields["minute"]) == ("mon", "8", "0")

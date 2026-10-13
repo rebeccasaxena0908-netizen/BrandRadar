@@ -180,7 +180,7 @@ Main packages: `streamlit`, `plotly`, `wordcloud`, `sqlalchemy`, `pymysql`, `pyt
 | 6 | Priority matrix, feature radar vs competitors, alert badges, executive summary feed | Done |
 | 7 | Collector scheduler + live-refreshing fragments; demo seed data | Done |
 | 8 | Optional Reddit source (only if you have approved access); free social sources: Mastodon, dev.to | Done |
-| 9 | Export: PDF/CSV weekly report, email or Slack alert | Next |
+| 9 | Export: PDF/CSV weekly report, email or Slack alert | Done |
 | 10 | Optional: LLM-written executive summary, multi-language reviews | |
 
 ---

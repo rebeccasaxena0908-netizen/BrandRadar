@@ -180,3 +180,19 @@ CREATE TABLE IF NOT EXISTS api_usage (
   PRIMARY KEY (id),
   UNIQUE KEY uq_api_usage_api_bucket_day (api, bucket, day)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- Notifications sent (email / Slack). One row per (kind, ref, channel) so nothing is ever sent twice:
+-- a row is claimed ('sending') before the message goes out; 'failed' rows are retried a few times.
+CREATE TABLE IF NOT EXISTS notifications (
+  id          INT UNSIGNED NOT NULL AUTO_INCREMENT,
+  kind        VARCHAR(16)  NOT NULL,           -- 'alert' / 'weekly'
+  ref         VARCHAR(64)  NOT NULL,           -- alert id, or the ISO week ('2026-W41')
+  channel     VARCHAR(16)  NOT NULL,           -- 'email' / 'slack'
+  status      VARCHAR(16)  NOT NULL,           -- 'sending' / 'sent' / 'failed'
+  attempts    INT UNSIGNED NOT NULL DEFAULT 0,
+  error       VARCHAR(1024) NULL,
+  created_at  DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  sent_at     DATETIME     NULL,
+  PRIMARY KEY (id),
+  UNIQUE KEY uq_notifications_kind_ref_channel (kind, ref, channel)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;

@@ -121,7 +121,7 @@ def test_schema_statements_target_the_demo_database() -> None:
     assert statements[0] == "CREATE DATABASE IF NOT EXISTS brand_radar_demo\n  CHARACTER SET utf8mb4\n  COLLATE utf8mb4_unicode_ci"
     assert statements[1] == "USE brand_radar_demo"
     assert not any("USE brand_radar\n" in s or s.endswith("USE brand_radar") for s in statements)
-    assert sum(s.startswith("CREATE TABLE") for s in statements) == 10
+    assert sum(s.startswith("CREATE TABLE") for s in statements) == 11
     assert all("--" not in s and s.count("(") == s.count(")") for s in statements)  # no comment split a statement
 
 

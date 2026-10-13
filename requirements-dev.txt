@@ -1,3 +1,4 @@
 # Development-only tools (not needed to run Brand Radar)
 -r requirements.txt
 playwright==1.48.0   # tools/screenshot.py; uses the installed Google Chrome by default (--browser chrome)
+pypdf==5.1.0         # tests: read the generated PDF reports

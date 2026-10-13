@@ -234,4 +234,21 @@ class ApiUsage(Base):
     used: Mapped[int] = mapped_column(Integer, default=0)
 
 
+class Notification(Base):
+    """Email/Slack messages sent, so each alert and each weekly report goes out at most once per channel."""
+
+    __tablename__ = "notifications"
+    __table_args__ = (UniqueConstraint("kind", "ref", "channel", name="uq_notifications_kind_ref_channel"),)
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    kind: Mapped[str] = mapped_column(String(16))
+    ref: Mapped[str] = mapped_column(String(64))
+    channel: Mapped[str] = mapped_column(String(16))
+    status: Mapped[str] = mapped_column(String(16))
+    attempts: Mapped[int] = mapped_column(Integer, default=0)
+    error: Mapped[Optional[str]] = mapped_column(String(1024))
+    created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
+    sent_at: Mapped[Optional[datetime]] = mapped_column(DateTime)
+
+
 TABLE_NAMES: tuple[str, ...] = tuple(Base.metadata.tables.keys())
