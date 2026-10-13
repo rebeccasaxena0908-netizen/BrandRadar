@@ -62,6 +62,8 @@ external API or loads a model, so it stays fast and light.
 
 Works on macOS and Windows (Linux too). You need **Python 3.11** and **XAMPP**.
 
+> **Note:** the Windows steps below haven't been tested on a Windows machine yet; Brand Radar was built and tested on macOS.
+
 **1. Install XAMPP** from [apachefriends.org](https://www.apachefriends.org) and start **MySQL** in the
 XAMPP Control Panel. XAMPP's MySQL client is here (its `root` user has no password by default):
 

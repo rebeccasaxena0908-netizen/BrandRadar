@@ -1,7 +1,7 @@
 # Brand Radar – UI decisions
 
-Design decided 12 Oct 2026. Step 5 done 13 Oct 2026 (commit `65ea0c1`); Step 6 done 13 Oct 2026 (`8dbdfa7`);
-Step 7 done 13 Oct 2026.
+Design decided 12 Oct 2026. Step 5 done 13 Oct 2026 (commit `346fc9f`); Step 6 done 13 Oct 2026 (`e20e791`);
+Step 7 done 13 Oct 2026 (`bb239fa`).
 
 ## Chosen design: "Blush glass"
 
