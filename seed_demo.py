@@ -1,4 +1,5 @@
-"""Build the demo database: realistic, fictional data for the 4 brands, kept apart from real data.
+"""Build the demo database: realistic, fictional data for all three brand groups (Note apps, Skincare,
+Stationery), kept apart from real data. Each group uses its industry profile's categories and features.
 
     python seed_demo.py                      # (re)builds brand_radar_demo
     BRAND_RADAR_DEMO=1 streamlit run app.py   # dashboard on the demo data ("Demo data" pill in the header)
@@ -31,8 +32,6 @@ from nlp.priority import run_priority
 from nlp.topics import rebuild_topic_daily
 from sources.base import utc_now
 
-DEMO_GROUP = "Note apps"
-
 DAYS = 60
 VOLUME = 1.4  # scales every theme's daily rate (not the spikes)
 MODEL_VERSION = "demo"
@@ -54,6 +53,15 @@ class Theme:
     anger: float = 0.35  # how much anger+disgust the complaints carry (drives "pain")
     spike: int = 0  # extra mentions in the last 7 days (with a quiet week before) -> spike alert
     sources: tuple[str, ...] = ("appstore", "playstore", "hackernews")
+
+
+# Sources per group, as the profiles fetch them (repeats weight the choice). News is coverage, not feedback,
+# and stays out of topics, so complaint themes never use it.
+SKINCARE = ("youtube", "youtube", "youtube", "mastodon")
+SKINCARE_TALK = ("youtube", "mastodon", "news")
+STATIONERY = ("youtube",)
+STATIONERY_TALK = ("youtube", "news")
+STORE_SOURCES = ("appstore", "playstore")  # the only sources with star ratings
 
 
 THEMES: dict[str, list[Theme]] = {
@@ -188,6 +196,232 @@ THEMES: dict[str, list[Theme]] = {
             "Would love a native integration with our invoicing tool so billable time flows across.",
         ]),
     ],
+    "Laneige": [
+        Theme("Sticky Sleeping Mask", "texture", "texture", "negative", 0.55, spike=8, anger=0.40, sources=SKINCARE, texts=[
+            "The new water sleeping mask feels so sticky that it ends up on my pillow every night.",
+            "Since the reformulation the sleeping mask stays tacky for hours instead of sinking in.",
+            "Too sticky for humid weather, I wake up with hair glued to my face.",
+        ]),
+        Theme("Lip Mask Jar Hygiene", "packaging", "packaging", "negative", 0.45, anger=0.35, sources=SKINCARE, texts=[
+            "Love the lip mask but dipping a finger into the jar every night feels unhygienic.",
+            "The tiny spatula got lost in a week, please make the lip mask in a tube.",
+            "The jar lid cracked in my bag and the lip mask got everywhere.",
+        ]),
+        Theme("Lip Mask Price Increase", "price/value", "price", "negative", 0.3, anger=0.28, sources=SKINCARE, texts=[
+            "The lip sleeping mask went up in price again, hard to justify for such a small jar.",
+            "Overpriced for the amount you get, I found cheaper lip balms that work as well.",
+        ]),
+        Theme("Cream Skin Breakouts", "skin reaction", "sensitivity", "negative", 0.2, anger=0.12, sources=SKINCARE, texts=[
+            "The cream skin toner gave me a few small breakouts around my chin.",
+            "My sensitive skin got slightly red after the cream skin refiner, stopping for now.",
+        ]),
+        Theme(None, "praise", "lip care", "positive", 0.9, sources=SKINCARE, texts=[
+            "The berry lip sleeping mask is the only thing that fixes my chapped lips in winter.",
+            "Woke up with the softest lips, this lip mask is worth the hype.",
+            "Third jar of the lip mask, nothing else keeps my lips this smooth overnight.",
+        ]),
+        Theme(None, "praise", "hydration", "positive", 0.6, sources=SKINCARE, texts=[
+            "The water bank cream keeps my dry skin hydrated all day, even with the heater on.",
+            "My skin feels plump and moisturised in the morning after the sleeping mask.",
+        ]),
+        Theme(None, "product request", "lip care", "neutral", 0.3, sources=SKINCARE, texts=[
+            "Please bring the lip mask in a squeeze tube so I can carry it around.",
+            "Would love an unscented version of the lip sleeping mask for sensitive lips.",
+        ]),
+        Theme(None, "general discussion", None, "neutral", 0.25, sources=SKINCARE_TALK, texts=[
+            "Overnight lip masks are having a moment, here is how the popular ones compare this winter.",
+            "K-beauty sleeping masks explained: what they do and how to layer them.",
+        ]),
+    ],
+    "SKIN1004": [
+        Theme("Sunscreen White Cast", "results", "sun protection", "negative", 0.5, anger=0.36, sources=SKINCARE, texts=[
+            "The hyalu-cica sunscreen leaves a grey white cast on my medium skin tone.",
+            "White cast is visible in every photo, disappointed because the texture is nice.",
+            "On darker skin this sunscreen looks ashy, please make a tinted version.",
+        ]),
+        Theme("Fake Ampoules From Resellers", "authenticity", "authenticity", "negative", 0.35, anger=0.45, sources=SKINCARE, texts=[
+            "Bought the centella ampoule from a marketplace reseller and it smelled different, probably fake.",
+            "Watch out for counterfeit ampoules from random sellers, the dropper and label looked off.",
+        ]),
+        Theme("Hard To Find In Stores", "availability", "availability", "negative", 0.25, anger=0.10, sources=SKINCARE, texts=[
+            "The centella ampoule is out of stock everywhere near me again.",
+            "Sold out online for weeks, I wish more local shops carried it.",
+        ]),
+        Theme(None, "praise", "ingredients", "positive", 0.8, sources=SKINCARE, texts=[
+            "The centella ampoule calmed my redness in a week, such a gentle formula.",
+            "Simple ingredients and it actually soothes my skin after shaving.",
+        ]),
+        Theme(None, "praise", "texture", "positive", 0.5, sources=SKINCARE, texts=[
+            "Lightweight sunscreen that absorbs fast and doesn't feel greasy under makeup.",
+            "The ampoule absorbs in seconds, no sticky residue at all.",
+        ]),
+        Theme(None, "product request", "sun protection", "neutral", 0.25, sources=SKINCARE, texts=[
+            "Please make a tinted sunscreen for deeper skin tones.",
+        ]),
+    ],
+    "Cosrx": [
+        Theme("Snail Mucin Pilling", "texture", "texture", "negative", 0.55, spike=7, anger=0.36, sources=SKINCARE, texts=[
+            "The snail mucin essence pills under my sunscreen every single morning.",
+            "Little rolls of product come off when I apply makeup over the snail essence.",
+            "Love how it feels but it pills with every moisturiser I have tried.",
+        ]),
+        Theme("Pump Stops Working", "packaging", "packaging", "negative", 0.3, anger=0.32, sources=SKINCARE, texts=[
+            "The pump on the cleanser stopped working halfway through the bottle.",
+            "Had to cut the bottle open because the pump broke and half the product was left.",
+        ]),
+        Theme("BHA Purging", "skin reaction", "acne", "negative", 0.3, anger=0.18, sources=SKINCARE, texts=[
+            "The BHA liquid made me purge for two weeks, lots of small pimples on my forehead.",
+            "Got more breakouts after starting the BHA, not sure if it is purging or a reaction.",
+        ]),
+        Theme(None, "praise", "hydration", "positive", 0.8, sources=SKINCARE, texts=[
+            "The snail mucin essence makes my dry skin feel so hydrated and bouncy.",
+            "My skin barrier finally feels healthy since adding the snail essence.",
+        ]),
+        Theme(None, "praise", "ingredients", "positive", 0.45, sources=SKINCARE, texts=[
+            "The low pH cleanser and BHA combo cleared most of my blackheads.",
+            "Short ingredient lists and they actually work, my go-to brand for basics.",
+        ]),
+        Theme(None, "product request", "packaging", "neutral", 0.2, sources=SKINCARE, texts=[
+            "Please sell a refill pouch for the snail essence instead of a new bottle each time.",
+        ]),
+    ],
+    "Innisfree": [
+        Theme("Formula Changed", "results", "ingredients", "negative", 0.45, anger=0.42, sources=SKINCARE, texts=[
+            "The green tea serum was reformulated and it no longer works the way it used to.",
+            "They changed the formula and now it does nothing for my dry patches.",
+            "New version of the serum feels thinner and my skin is not as hydrated.",
+        ]),
+        Theme("Strong Green Tea Scent", "scent", "scent", "negative", 0.35, anger=0.20, sources=SKINCARE, texts=[
+            "The green tea scent is too strong for me, it lingers for hours.",
+            "Fragrance is overpowering, I wish there was an unscented version.",
+        ]),
+        Theme("Sunscreen Stings Eyes", "skin reaction", "sun protection", "negative", 0.25, anger=0.30, sources=SKINCARE, texts=[
+            "The tone up sunscreen stings my eyes as soon as I start sweating.",
+            "My eyes water every time I wear this sunscreen outdoors.",
+        ]),
+        Theme(None, "praise", "ingredients", "positive", 0.6, sources=SKINCARE, texts=[
+            "The volcanic clay mask leaves my pores looking so clean.",
+            "The green tea seed cream is gentle and calming for my sensitive skin.",
+        ]),
+        Theme(None, "praise", "price", "positive", 0.45, sources=SKINCARE, texts=[
+            "Affordable and good quality, perfect for students on a budget.",
+            "Great value for money compared to other K-beauty brands.",
+        ]),
+        Theme(None, "product request", "scent", "neutral", 0.2, sources=SKINCARE, texts=[
+            "Please make a fragrance-free version of the green tea line.",
+        ]),
+    ],
+    "DOMS": [
+        Theme("Leads Break While Sharpening", "sharpening", "sharpening", "negative", 0.6, spike=8, anger=0.42, sources=STATIONERY, texts=[
+            "The lead keeps breaking every time my kid sharpens the pencil, we lose half the pencil.",
+            "Sharpened three times and the tip snapped each time, very frustrating during exams.",
+            "The new pencils break inside the sharpener, the old batch was much better.",
+        ]),
+        Theme("Gel Pen Ink Skips", "ink/lead quality", "ink", "negative", 0.45, anger=0.34, sources=STATIONERY, texts=[
+            "The gel pen skips in the middle of words and the ink feels dry.",
+            "Ink stopped flowing after a few pages, had to scribble to restart it.",
+            "The refill dried out within a week even with the cap on.",
+        ]),
+        Theme("Eraser Smudges Notebook", "smudging", "erasing", "negative", 0.3, anger=0.20, sources=STATIONERY, texts=[
+            "The eraser smudges graphite across the page instead of removing it.",
+            "Erasing leaves grey smears in my notebook, my teacher noticed.",
+        ]),
+        Theme("Flimsy Kit Box", "packaging", "packaging", "negative", 0.2, anger=0.10, sources=STATIONERY, texts=[
+            "The kit box is cute but the lid came off in the school bag on day two.",
+            "The plastic case of the kit cracked after a week.",
+        ]),
+        Theme(None, "praise", "lead", "positive", 0.85, sources=STATIONERY, texts=[
+            "The pencils give dark smooth lines, perfect for shading in my sketchbook.",
+            "Writing feels smooth and the lead is nice and dark, my handwriting looks better.",
+            "Best pencils for drawing practice, dark and consistent.",
+        ]),
+        Theme(None, "praise", "price", "positive", 0.6, sources=STATIONERY, texts=[
+            "So much in one kit for this price, great value for school.",
+            "Affordable and good quality, the whole class uses these now.",
+        ]),
+        Theme(None, "product request", "packaging", "neutral", 0.3, sources=STATIONERY, texts=[
+            "Please make a kit with a metal case so it lasts the whole school year.",
+            "Would love a bigger pack of the gel pens in more colours.",
+        ]),
+        Theme(None, "general discussion", None, "neutral", 0.2, sources=STATIONERY_TALK, texts=[
+            "Back-to-school season: how the big stationery brands are pricing their kits this year.",
+            "Pencil test: shading comparison of popular HB and 2B pencils.",
+        ]),
+    ],
+    "Apsara": [
+        Theme("Pencil Tips Snap", "breakage/durability", "durability", "negative", 0.55, spike=7, anger=0.36, sources=STATIONERY, texts=[
+            "The tip snaps as soon as I press a little harder, the platinum pencils used to be stronger.",
+            "Leads broken inside the pencil, every time I sharpen it breaks again.",
+            "Pencils break when they fall once, my son goes through a pack a week.",
+        ]),
+        Theme("Scratchy Lead", "ink/lead quality", "lead", "negative", 0.3, anger=0.22, sources=STATIONERY, texts=[
+            "The lead feels scratchy on paper and the lines look faint.",
+            "Some pencils in the pack write very light, not consistent at all.",
+        ]),
+        Theme("Eraser Leaves Marks", "smudging", "erasing", "negative", 0.3, anger=0.26, sources=STATIONERY, texts=[
+            "The eraser leaves pink marks on the page.",
+            "Erasing makes the paper rough and the graphite smears.",
+        ]),
+        Theme(None, "praise", "lead", "positive", 0.75, sources=STATIONERY, texts=[
+            "Dark and smooth, perfect for exams and neat handwriting.",
+            "Shading with these pencils is so easy, the lead is very smooth.",
+        ]),
+        Theme(None, "praise", "erasing", "positive", 0.4, sources=STATIONERY, texts=[
+            "The non-dust eraser is the cleanest one I have used.",
+        ]),
+        Theme(None, "product request", "lead", "neutral", 0.2, sources=STATIONERY, texts=[
+            "Please bring back the extra dark pencils in a bigger pack.",
+        ]),
+    ],
+    "Nataraj": [
+        Theme("Leads Too Light", "ink/lead quality", "lead", "negative", 0.45, anger=0.30, sources=STATIONERY, texts=[
+            "The lead is too light now, my writing barely shows on the answer sheet.",
+            "These pencils write much lighter than before, I have to press hard.",
+            "Faint lines even on fresh paper, not like the old ones.",
+        ]),
+        Theme("Sharpener Blades Dull Fast", "sharpening", "sharpening", "negative", 0.35, anger=0.34, sources=STATIONERY, texts=[
+            "The sharpener blade got dull within a week and now it chews the wood.",
+            "Sharpener breaks the tip every time, the blade is loose.",
+        ]),
+        Theme("Hard To Find Big Packs", "availability", "availability", "negative", 0.2, anger=0.08, sources=STATIONERY, texts=[
+            "The big value pack is never available at our local stationery shop.",
+        ]),
+        Theme(None, "praise", "price", "positive", 0.8, sources=STATIONERY, texts=[
+            "Still the best value pencil, a whole pack costs almost nothing.",
+            "Cheap and reliable, I have used these since primary school.",
+        ]),
+        Theme(None, "praise", "durability", "positive", 0.4, sources=STATIONERY, texts=[
+            "The leads are sturdy and don't break when the pencil falls.",
+        ]),
+        Theme(None, "product request", "grip", "neutral", 0.25, sources=STATIONERY, texts=[
+            "Please make a version with a rubber grip, my fingers hurt during long exams.",
+        ]),
+    ],
+    "Camlin": [
+        Theme("Marker Ink Dries Out", "ink/lead quality", "ink", "negative", 0.5, anger=0.38, sources=STATIONERY, texts=[
+            "The permanent markers dried out within a month even with the cap on.",
+            "Ink in the sketch pens fades after a few uses, very disappointing.",
+            "Half the markers in the set were already dry when I opened it.",
+        ]),
+        Theme("Watercolour Cakes Crack", "breakage/durability", "durability", "negative", 0.3, anger=0.28, sources=STATIONERY, texts=[
+            "The watercolour cakes cracked and crumbled before I even used them.",
+            "The paint cakes break into pieces when they dry out.",
+        ]),
+        Theme("Art Set Prices", "price/value", "price", "negative", 0.25, anger=0.18, sources=STATIONERY, texts=[
+            "The art set got expensive this year for the same number of colours.",
+            "Overpriced compared to other brands with similar quality.",
+        ]),
+        Theme(None, "praise", "ink", "positive", 0.75, sources=STATIONERY, texts=[
+            "The colours are so vibrant, my painting looks amazing.",
+            "Smooth ink flow and bright colours, perfect for art class.",
+        ]),
+        Theme(None, "praise", "packaging", "positive", 0.35, sources=STATIONERY, texts=[
+            "Lovely gift box, the art set was a big hit at my daughter's birthday.",
+        ]),
+        Theme(None, "product request", "ink", "neutral", 0.2, sources=STATIONERY, texts=[
+            "Please add more pastel shades to the brush pen set.",
+        ]),
+    ],
 }
 
 ADJECTIVES = ["quiet", "sunny", "brisk", "mellow", "clever", "rapid", "gentle", "lucky", "amber", "misty", "plucky", "tidy"]
@@ -252,8 +486,8 @@ def seed(engine: Engine, now: datetime | None = None, seed_value: int = 7) -> Se
     summary = SeedSummary()
 
     with factory() as session:
-        # the demo story is about note apps only; other groups in brands.yaml are left out
-        sync_brands(session, [e for e in load_yaml(PROJECT_ROOT / "brands.yaml") if e.group == DEMO_GROUP])
+        # every brand that has a demo story (all three groups in brands.yaml)
+        sync_brands(session, [e for e in load_yaml(PROJECT_ROOT / "brands.yaml") if e.name in THEMES])
         session.commit()
         brands = {b.name: b for b in session.scalars(select(Brand))}
     summary.brands = len(brands)
@@ -286,7 +520,7 @@ def seed(engine: Engine, now: datetime | None = None, seed_value: int = 7) -> Se
                         mention = Mention(
                             brand_id=brand.id, source=source, external_id=f"demo-{n}", author=_handle(rng),
                             text=text_, url=None, created_at=created, fetched_at=created + timedelta(minutes=30),
-                            rating=_rating(rng, theme.sentiment) if source != "hackernews" else None,
+                            rating=_rating(rng, theme.sentiment) if source in STORE_SOURCES else None,
                         )
                         session.add(mention)
                         session.flush()
@@ -311,7 +545,7 @@ def seed(engine: Engine, now: datetime | None = None, seed_value: int = 7) -> Se
             rebuild_topic_daily(session, brand.id)
         # a few fetch runs and a recent successful collector cycle, so the header status has something to show
         for brand in brands.values():
-            for source in ("hackernews", "appstore", "playstore"):
+            for source in sorted({src for theme in THEMES[brand.name] for src in theme.sources}):
                 session.add(FetchRun(source=source, brand_id=brand.id, started_at=now - timedelta(minutes=9),
                                      finished_at=now - timedelta(minutes=8), new_rows=rng.randint(0, 6)))
         session.add(CollectorRun(started_at=now - timedelta(minutes=9), finished_at=now - timedelta(minutes=4),

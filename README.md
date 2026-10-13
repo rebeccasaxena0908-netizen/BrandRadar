@@ -143,8 +143,9 @@ terminal; close it (or run `Remove-Item Env:BRAND_RADAR_DEMO`) before going back
 Only one collector runs at a time (a lock file plus APScheduler `max_instances=1`); a second one exits
 with a message. If a stage fails, the error is logged to `collector_runs` and the later stages still run.
 
-**Demo mode** reads a separate `brand_radar_demo` database with about 1,100 fictional mentions over 60
-days, built from templates (no real people). Your real data is never touched: the seed script refuses to
+**Demo mode** reads a separate `brand_radar_demo` database with about 3,000 fictional mentions over 60
+days for all three groups, built from templates (no real people). Each group uses its profile's
+categories, features and sources, and has complaint topics in every priority quadrant plus spike alerts. Your real data is never touched: the seed script refuses to
 write to `DB_NAME`, and the collector refuses to run in demo mode. Re-running `seed_demo.py` rebuilds it.
 
 ## Tracking another industry
@@ -178,7 +179,7 @@ quickest way to fill these groups. See **[docs/first-run-skincare-stationery.md]
 | Reddit | **Optional, off by default.** Posts and top-level comments that name the brand, plus the brand's own subreddits. Needs approved API credentials; see [Enabling Reddit](#enabling-reddit). Skipped cleanly without them. |
 | Mastodon | Public hashtag timelines (#notion, #obsidian…) on mastodon.social, fosstodon.org and hachyderm.io (`MASTODON_INSTANCES`), no login. English posts only; people who opted out of search or discovery, bots, boosts and non-public posts are skipped; the post must still name the brand. Full-text search needs a login, so hashtags are the open route. About 40 mentions a month, almost all Notion and Obsidian. |
 | dev.to | Articles tagged with the brand plus their top-level comments, via the public Forem API (no key). Mostly makers writing about their own tools, so it feeds sentiment, the feature radar and word clouds but is **left out of complaint topics, the matrix and alerts** (`TOPIC_EXCLUDED_SOURCES`). At most 3 items per author per brand and run. |
-| YouTube | **Optional, needs a free API key** (see [Enabling YouTube](#enabling-youtube)). Searches videos whose *title* names the brand (`youtube_queries` in `brands.yaml`), then reads the comments of the newest 25 per brand. Comments don't need to repeat the brand name, but ones under 3 words must (poll and giveaway answers like "Sketch book" carry no opinion). At most 3 per author. Comments are kept 30 days unless seen again, as YouTube's policies require. |
+| YouTube | **Optional, needs a free API key** (see [Enabling YouTube](#enabling-youtube)). Searches videos whose *title* names the brand (`youtube_queries` in `brands.yaml`), then reads the comments of the newest 30 per brand. Comments don't need to repeat the brand name, but ones under 3 words must (poll and giveaway answers like "Sketch book" carry no opinion). At most 3 per author. Comments are kept 30 days unless seen again, as YouTube's policies require. |
 | News | GDELT article search, free and keyless. Only headlines (coverage, not customer feedback), so news counts for volume and sentiment but stays **out of complaint topics**. GDELT rate-limits busy periods (429); the run is logged and retried next cycle. |
 | CSV import | Any other source (e.g. exported marketplace reviews or social posts), via `fetch.py --csv`. Header names are matched loosely (`--map` for others) and ratings like 4/5, 8/10 or ★★★★ become 1–5. |
 
@@ -246,8 +247,9 @@ Models: `cardiffnlp/twitter-roberta-base-sentiment-latest`, `j-hartmann/emotion-
 ## Known limitations
 
 - **English only.** Non-English mentions are detected and stored without labels (counted per brand in
-  `check_setup.py`). Very short comments are the weak spot: a few short English comments get tagged as
-  Dutch or German and skipped, and some romanised Hindi or Bengali passes as English.
+  `check_setup.py`). Short Latin-script texts (under 8 words) count as English unless the detector is at
+  least 95% sure of another language, so short English comments are no longer skipped as Dutch or German.
+  The cost: short romanised Hindi or Bengali without enough Hindi words is analysed as English.
 - **Physical-product groups are thin** without CSV imports (see [Tracking another industry](#tracking-another-industry)).
 - **Topic continuity is by meaning.** Each topic stores its centroid embedding; after re-clustering, a
   cluster keeps an existing topic's id only if it is semantically the same theme (stricter for brands

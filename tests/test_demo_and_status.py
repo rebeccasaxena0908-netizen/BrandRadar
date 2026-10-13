@@ -35,8 +35,8 @@ def count(engine, model, *where) -> int:  # type: ignore[no-untyped-def]
 
 
 def test_demo_fills_every_table(demo_engine) -> None:  # type: ignore[no-untyped-def]
-    assert count(demo_engine, Brand) == 4
-    assert count(demo_engine, Mention) > 800
+    assert count(demo_engine, Brand) == 12  # Note apps, Skincare and Stationery
+    assert count(demo_engine, Mention) > 2500
     assert count(demo_engine, Analysis) == count(demo_engine, Mention)  # every mention analysed
     assert count(demo_engine, TopicDaily) > 0
     assert count(demo_engine, Alert) >= 2
@@ -54,6 +54,30 @@ def test_demo_every_brand_is_full(demo_engine) -> None:  # type: ignore[no-untyp
             assert recent >= 30, brand.name  # the default 14-day view is never thin
             sentiments = {a for a in s.scalars(select(Analysis.sentiment).join(Mention).where(Mention.brand_id == brand.id))}
             assert sentiments == {"negative", "neutral", "positive"}, brand.name
+
+
+def test_demo_groups_use_their_profile_and_each_own_brand_has_an_alert(demo_engine) -> None:  # type: ignore[no-untyped-def]
+    from nlp.profiles import get_profile
+
+    with Session(demo_engine) as s:
+        brands = list(s.scalars(select(Brand)))
+        assert {b.brand_group for b in brands} == {"Note apps", "Skincare", "Stationery"}
+        for brand in brands:
+            profile = get_profile(brand.profile)
+            categories = set(s.scalars(select(Analysis.category).join(Mention).where(Mention.brand_id == brand.id)))
+            assert categories <= set(profile.categories), brand.name
+            for topic in s.scalars(select(Topic).where(Topic.brand_id == brand.id)):
+                assert topic.category in profile.complaints, (brand.name, topic.label)
+        own = [b for b in brands if b.is_own]
+        assert len(own) == 3
+        for brand in own:
+            topic_ids = set(s.scalars(select(Topic.id).where(Topic.brand_id == brand.id)))
+            assert s.scalar(select(func.count()).select_from(Alert).where(Alert.topic_id.in_(topic_ids))), brand.name
+        sources = set(s.scalars(select(Mention.source).join(Brand).where(Brand.brand_group == "Stationery")))
+        assert sources == {"youtube", "news"}
+        rated = s.scalar(select(func.count()).select_from(Mention).where(Mention.rating.is_not(None),
+                                                                          Mention.source.not_in(("appstore", "playstore"))))
+        assert rated == 0  # only store reviews have stars
 
 
 def test_demo_spans_60_days_and_all_quadrants(demo_engine) -> None:  # type: ignore[no-untyped-def]

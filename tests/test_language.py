@@ -85,3 +85,35 @@ def test_short_english_is_not_mistaken_for_other_languages(text: str) -> None:
 
 def test_links_are_ignored() -> None:
     assert detect_language("Simplified Obsidian https://fed.brid.gy/r/https://rastundrost.de/2026/10/12/simplified-obsidian") == "und"
+
+
+@pytest.mark.parametrize(
+    "text",
+    [  # real YouTube comments that lingua tagged nl / de with confidence up to 0.94
+        "doms offer better in same price",
+        "Best gel exam pen under 50rs",
+        "50 pages so thats 25 sheet",
+        "Wow remote control car",
+    ],
+)
+def test_short_latin_text_defaults_to_english(text: str) -> None:
+    assert detect_language(text) == "en"
+
+
+@pytest.mark.parametrize(
+    ("text", "code"),
+    [  # short, but lingua is >= 0.95 sure: still not English
+        ("Me encanta este producto", "es"),
+        ("Das ist sehr gut", "de"),
+        ("Ik vind dit product geweldig", "nl"),
+        ("Muito bom, recomendo demais", "pt"),
+        ("Sangat cocok untuk kulit berminyak", "id"),
+    ],
+)
+def test_confident_short_foreign_text_keeps_its_language(text: str, code: str) -> None:
+    assert detect_language(text) == code
+
+
+@pytest.mark.parametrize("text", ["ကောင်း", "אחת האפליקציות המעולות ביותר לניהול מידע"])
+def test_short_text_rule_is_latin_only(text: str) -> None:  # scripts without a SCRIPTS entry stay undetermined
+    assert detect_language(text) == "und"

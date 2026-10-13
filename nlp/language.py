@@ -14,6 +14,10 @@ and reported, and wait for translation (Step 10).
 - Latin text with a couple of unambiguous English words ("the", "my", "of", "than"…) is English before
   lingua is asked: its low-accuracy mode called short English French, Italian or Dutch.
 - Very short or low-confidence texts are 'und' rather than guessed ("Sync broke" looks Dutch).
+- Short Latin texts (under SHORT_WORDS words) are English unless lingua is at least HIGH_CONFIDENCE sure of
+  another language. Measured on real YouTube comments: misread English scored up to 0.94 ("Best gel exam
+  pen under 50rs" -> nl 0.94, "doms offer better in same price" -> nl 0.81), real short foreign sentences
+  0.96-1.00 ("Me encanta este producto" es 0.96, "Das ist sehr gut" de 1.00). The margin is thin.
 """
 
 from __future__ import annotations
@@ -25,6 +29,8 @@ from typing import Any
 ANALYSED = ("en", "und")  # languages the English models handle (und = too short or unclear to tell)
 MIN_WORDS = 4
 MIN_CONFIDENCE = 0.5
+SHORT_WORDS = 8  # Latin texts with fewer words default to English...
+HIGH_CONFIDENCE = 0.95  # ...unless lingua is this sure of another language
 MIN_HINDI_WORDS = 3
 MIN_HINDI_SHARE = 0.2
 
@@ -133,6 +139,9 @@ def detect_language(text: str | None) -> str:
     if not confidences:
         return "und"
     best = confidences[0]
+    code = best.language.iso_code_639_1.name.lower()
+    if latin and len(words) < SHORT_WORDS and code != "en" and best.value < HIGH_CONFIDENCE:
+        return "en"
     if best.value < MIN_CONFIDENCE:
         return "und"
-    return best.language.iso_code_639_1.name.lower()
+    return code

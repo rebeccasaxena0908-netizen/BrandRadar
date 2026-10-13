@@ -396,3 +396,31 @@ def test_non_english_is_stored_without_labels_and_counted(factory: sessionmaker[
         assert s.get(Mention, ids[1]).language == "hinglish"  # type: ignore[union-attr]
     # not retried on the next run
     assert run_pipeline(factory, FakeAnalyzer()).selected == 0
+
+
+def test_redetect_language_reanalyses_only_mentions_that_change(
+    factory: sessionmaker[Session], brands: list[BrandSpec]
+) -> None:
+    from nlp.pipeline import redetect_languages
+
+    ids = add_mentions(factory, brands[0], [
+        "doms offer better in same price",  # stored as nl by the old rule
+        "Das ist sehr gut und wirklich schön",  # stored as de, stays de
+        "I love how fast the new editor is on my phone",  # stored as en, stays en
+        "Une perte de temps, le produit ne fonctionne pas du tout",  # stored as nl by mistake: fr, still skipped
+    ])
+    with factory() as s:
+        for i, lang in zip(ids, ["nl", "de", "en", "nl"]):
+            s.get(Mention, i).language = lang  # type: ignore[union-attr]
+        s.commit()
+    run_pipeline(factory, FakeAnalyzer())
+    before = analyses(factory)
+    assert before[ids[0]].sentiment is None
+
+    with factory() as s:
+        assert redetect_languages(s) == (2, 1)  # nl -> en (row deleted) and nl -> fr (row kept)
+        s.commit()
+        assert [s.get(Mention, i).language for i in ids] == ["en", "de", "en", "fr"]  # type: ignore[union-attr]
+    stats = run_pipeline(factory, FakeAnalyzer())
+    assert stats.selected == 1 and stats.analysed == 1  # only the flipped mention; the others keep their rows
+    assert analyses(factory)[ids[0]].sentiment is not None

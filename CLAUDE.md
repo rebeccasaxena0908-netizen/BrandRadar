@@ -40,6 +40,7 @@ python fetch.py [--brand X] [--source hackernews] [--since-days 30] # fetch ment
 python fetch.py --csv file.csv --brand Notion                       # CSV import
 python -m nlp.pipeline [--brand X] [--limit N]                      # analyse mentions without analysis
 python -m nlp.pipeline --reanalyse [--brand X] [--model-version V|outdated]
+python -m nlp.pipeline --redetect-language                          # after editing nlp/language.py
 python -m nlp.pipeline --download                                   # fetch the models into the HF cache
 python -m nlp.topics [--brand X]                                    # cluster complaints, rebuild topic_daily
 python -m nlp.priority [--as-of DATE] [--report]                    # priority snapshot + spike alerts
@@ -89,6 +90,8 @@ python tools/screenshot.py --group Stationery --name industry-stationery     # a
   spawn Process + Queue, never a Pool: a dead Pool worker hangs `apply`). Ctrl+C / SIGTERM set `STOP`;
   `install_signal_handlers` restores SIGINT because background jobs of a script start with it ignored.
   Each cycle is a `collector_runs` row (ok / partial / failed); the header status reads it.
+- Demo data (`seed_demo.py` THEMES) covers all three groups with each profile's categories/features;
+  `tests/test_demo_and_status.py` checks every brand is full and every own brand has an alert.
 - Demo data lives in `brand_radar_demo` (`BRAND_RADAR_DEMO=1` switches `config`); never write demo data
   to the real database, and the collector refuses demo mode.
 - Brand matching: `exclude` phrases are removed before matching; `exclude_if` words drop the mention.

@@ -131,7 +131,7 @@ def load_settings() -> Settings:
         youtube_api_key=os.getenv("YOUTUBE_API_KEY", "").strip(),
         youtube_search_budget=_get_int("YOUTUBE_SEARCH_BUDGET", 80),
         youtube_unit_budget=_get_int("YOUTUBE_UNIT_BUDGET", 8000),
-        youtube_max_videos=_get_int("YOUTUBE_MAX_VIDEOS", 25),
+        youtube_max_videos=_get_int("YOUTUBE_MAX_VIDEOS", 30),
         youtube_comment_pages=_get_int("YOUTUBE_COMMENT_PAGES", 2),
         news_min_interval=_get_float("NEWS_MIN_INTERVAL", 6.0),
     )

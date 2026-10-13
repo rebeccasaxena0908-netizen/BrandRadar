@@ -6,6 +6,8 @@
     python -m nlp.pipeline --reanalyse --model-version outdated   # redo rows from older models/pipeline
     python -m nlp.pipeline --reanalyse --category praise --sentiment negative   # redo matching rows only
     python -m nlp.pipeline --restamp OLD_VERSION         # mark rows a version change cannot affect as current
+    python -m nlp.pipeline --redetect-language           # after changing nlp/language.py: store the new
+                                                         # languages, re-analyse only mentions that change
     python -m nlp.pipeline --download                    # only download the models
 
 --reanalyse deletes the matching analysis rows first; anything not re-analysed (e.g. a crash)
@@ -230,6 +232,32 @@ def restamp(session: Session, old_version: str, new_version: str) -> int:
     return session.execute(stmt.execution_options(synchronize_session=False)).rowcount or 0
 
 
+def redetect_languages(session: Session, brands: list[int] | None = None) -> tuple[int, int]:
+    """Detect every mention's language again and store changes. A mention whose language moves into or
+    out of ANALYSED loses its analysis row, so the next run analyses it (or stores it unlabelled); other
+    changes (de -> nl) keep their row. Returns (languages changed, analysis rows deleted)."""
+    stmt = select(Mention)
+    if brands is not None:
+        stmt = stmt.where(Mention.brand_id.in_(brands))
+    changed = 0
+    flipped: list[int] = []
+    for mention in session.scalars(stmt):
+        language = detect_language(mention.text)
+        if language == mention.language:
+            continue
+        if (mention.language in ANALYSED) != (language in ANALYSED):
+            flipped.append(mention.id)
+        mention.language = language
+        changed += 1
+    deleted = 0
+    for start in range(0, len(flipped), 500):
+        chunk = flipped[start:start + 500]
+        result = session.execute(delete(Analysis).where(Analysis.mention_id.in_(chunk)))
+        deleted += int(result.rowcount or 0)
+    session.flush()
+    return changed, deleted
+
+
 def select_pending(session: Session, brands: list[int] | None, limit: int | None) -> list[PendingMention]:
     stmt = (
         select(Mention.id, Mention.brand_id, Mention.text, Brand.profile, Mention.language)
@@ -356,6 +384,10 @@ def main(argv: Sequence[str] | None = None) -> int:
         "--restamp", metavar="OLD_VERSION",
         help="set model_version of rows at OLD_VERSION to the current version, without recomputing",
     )
+    parser.add_argument(
+        "--redetect-language", action="store_true",
+        help="detect languages again first; only mentions that become (un)analysable are re-analysed",
+    )
     parser.add_argument("--batch-size", type=int, help=f"default {settings.nlp_batch_size}")
     parser.add_argument("--download", action="store_true", help="download/load the models and exit")
     parser.add_argument("-q", "--quiet", action="store_true", help="no progress bar")
@@ -386,6 +418,12 @@ def main(argv: Sequence[str] | None = None) -> int:
             session.commit()
         print(f"Restamped {n} rows: {args.restamp} -> {current}")
         return 0
+
+    if args.redetect_language:
+        with get_session_factory()() as session:
+            changed, deleted = redetect_languages(session, brand_ids(session, args.brand))
+            session.commit()
+        print(f"Re-detected languages: {changed} changed, {deleted} analysis rows deleted for re-analysis")
 
     stats = run_pipeline(
         get_session_factory(), analyzer, brands=args.brand, limit=args.limit, reanalyse=args.reanalyse,
