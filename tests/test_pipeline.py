@@ -10,6 +10,7 @@ from sqlalchemy.orm import Session, sessionmaker
 
 from db.models import Analysis, Brand, Mention
 from nlp.models import EMOTIONS, Scores
+from nlp.profiles import APP_CATEGORY, APP_HYPOTHESIS, get_profile, profile_key
 from nlp.pipeline import (
     CATEGORY_HYPOTHESES,
     PIPELINE_VERSION,
@@ -357,6 +358,7 @@ def test_categories_and_version_follow_each_brands_profile(factory: sessionmaker
     with factory() as s:
         s.get(Brand, brands[1].id).profile = "beauty_skincare"  # type: ignore[union-attr]
         s.get(Brand, brands[1].id).features = None  # type: ignore[union-attr]
+        s.get(Brand, brands[1].id).app_store_id = s.get(Brand, brands[1].id).play_store_id = None  # type: ignore[union-attr]
         s.commit()
     soft = add_mentions(factory, brands[0], ["the app crashes when I open it today"])[0]
     beauty = add_mentions(factory, brands[1], ["this cream is way too sticky on my face"])[0]
@@ -371,6 +373,55 @@ def test_categories_and_version_follow_each_brands_profile(factory: sessionmaker
     # both are current: nothing is outdated
     stats = run_pipeline(factory, ProfileAwareFake(), reanalyse=True, model_version="outdated")
     assert stats.selected == 0
+
+
+class AppAwareFake(FakeAnalyzer):
+    """Picks the app and ordering category when it is offered, and remembers which categories were offered."""
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.offered: list[list[str]] = []
+
+    def zero_shot(self, texts: list[str], labels: list[str], template: str, multi_label: bool) -> list[Scores]:
+        if multi_label:
+            return super().zero_shot(texts, labels, template, multi_label)
+        self._check("category", texts)
+        self.offered.append(list(labels))
+        pick = APP_HYPOTHESIS if APP_HYPOTHESIS in labels else labels[0]
+        return [{l: (0.9 if l == pick else 0.01) for l in labels} for _ in texts]
+
+
+def test_brands_with_an_app_get_the_app_and_ordering_category(factory: sessionmaker[Session], brands: list[BrandSpec]) -> None:
+    with factory() as s:
+        for b in brands:  # one software brand with store ids (unchanged), one food brand
+            s.get(Brand, b.id).app_store_id = s.get(Brand, b.id).play_store_id = None  # type: ignore[union-attr]
+        s.get(Brand, brands[1].id).profile = "food_beverage"  # type: ignore[union-attr]
+        s.get(Brand, brands[1].id).features = None  # type: ignore[union-attr]
+        s.commit()
+    order = add_mentions(factory, brands[1], ["the order was missing my fries and the tracker never updated"])[0]
+    fake = AppAwareFake()
+    run_pipeline(factory, fake)
+    before = analyses(factory)[order]
+    assert before.category == "taste" and APP_HYPOTHESIS not in fake.offered[-1]  # no app: industry categories only
+    assert before.model_version.startswith(f"p{PIPELINE_VERSION}.food_beverage1-")
+
+    # the brand gets store ids (brands.yaml): its rows are outdated, and the redo offers the new category
+    with factory() as s:
+        s.get(Brand, brands[1].id).app_store_id = "922103212"  # type: ignore[union-attr]
+        s.commit()
+    fake = AppAwareFake()
+    stats = run_pipeline(factory, fake, reanalyse=True, model_version="outdated")
+    assert stats.selected == 1
+    after = analyses(factory)[order]
+    assert after.category == APP_CATEGORY and after.model_version.startswith(f"p{PIPELINE_VERSION}.food_beverage1.app-")
+    assert APP_HYPOTHESIS in fake.offered[-1] and len(fake.offered[-1]) == len(get_profile("food_beverage").categories) + 1
+    assert run_pipeline(factory, AppAwareFake(), reanalyse=True, model_version="outdated").selected == 0  # current now
+
+    # it counts as a complaint even when the mention is neutral, and software never gets it
+    assert get_profile("food_beverage+app").is_complaint("neutral", APP_CATEGORY)
+    assert not get_profile("food_beverage").is_complaint("neutral", APP_CATEGORY)
+    assert get_profile("software+app") is get_profile("software") and APP_CATEGORY not in get_profile("software").categories
+    assert profile_key("food_beverage", "1", None) == "food_beverage+app" and profile_key("software", "1", "x") == "software"
 
 
 def test_software_version_is_unchanged() -> None:

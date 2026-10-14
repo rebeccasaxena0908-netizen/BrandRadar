@@ -29,7 +29,7 @@ from sqlalchemy.orm import Session, sessionmaker
 
 from config import PROJECT_ROOT, settings
 from db.models import Analysis, Brand, Mention, Topic, TopicDaily
-from nlp.profiles import SOFTWARE, Profile, get_profile
+from nlp.profiles import SOFTWARE, Profile, get_profile, profile_key
 from nlp.text import clean_text
 from sources.base import split_keywords
 
@@ -485,7 +485,8 @@ def run_topics(
         result = BrandResult(brand=brand.name)
         results.append(result)
         with factory() as session:
-            complaints = load_complaints(session, brand.id, excluded_sources, get_profile(brand.profile))
+            complaints = load_complaints(session, brand.id, excluded_sources,
+                                         get_profile(profile_key(brand.profile, brand.app_store_id, brand.play_store_id)))
         english = [c for c in complaints if looks_english(c.text)]
         result.non_english = len(complaints) - len(english)
         complaints = english

@@ -17,6 +17,8 @@ It works for any industry. Out of the box it tracks three brand groups, each wit
 
 - **Any industry**: industry profiles (`profiles.yaml`) for software, skincare, stationery, food & beverage,
   fashion and consumer products. Each profile has its own complaint categories, praise labels and default sources.
+  A brand with its own app (store ids in `brands.yaml`) also gets an *app and ordering experience* complaint
+  category (app crashes, login, ordering, payment, delivery tracking); software profiles already cover that.
   Brands are organised in groups, and the dashboard switches between them.
 - **Collector** (`collector.py`): every 6 hours it fetches new mentions, analyses them, re-clusters
   topics and recomputes priorities. NLP models are only loaded when there is something new.
@@ -331,16 +333,35 @@ The collector must be running (`python collector.py` or `scripts/start.sh`); it 
 **Measured on the first real run** (8 GB M2, gemma3:4b): McDonald's took about 4 minutes from Track to
 review (72 s research, 164 s dry run) and 28 minutes from Approve to Ready (fetch 3.5 min, NLP on 963
 mentions 10 min, translating 88 non-English mentions 9 min, topics 0.5 min, labels and briefing 5 min):
-635 analysed McDonald's mentions (500 Google Play reviews, 127 YouTube comments, 22 Mastodon posts) and 9
-complaint topics such as *Poor Product Quality*, *App Ordering Problems* and *Disney Villain Disappointment*.
-Nivea ended as *Not enough data yet*. The research picks the closest existing profile: McDonald's got
-`food_beverage`, which has no category for app problems, so app complaints land in its nearest category
-(*delivery*, *freshness/quality*); edit the profile, or pick a drafted one in the review, when that matters.
+635 analysed McDonald's mentions (500 Google Play reviews, 127 YouTube comments, 22 Mastodon posts). The
+group first used the plain `food_beverage` profile, which has no category for app problems, so app
+complaints were spread over *delivery*, *freshness/quality* and *health/ingredients*. Brands with store ids
+now also get the *app and ordering experience* category (see [above](#the-app-and-ordering-category)):
+re-analysed, 186 of McDonald's 635 mentions fall in it, and 8 of its 11 topics are app topics (*App Loading
+Issues*, *App Ordering Problems*, *Redemption System Failure*…) next to *Decreased Product Quality* and
+*Disappointing Halloween Products*. Nivea ended as *Not enough data yet*.
 
 **Removing a group.** *Remove a group added here* deletes a dashboard-added group's brands, mentions,
 analysis, topics and alerts, and its blocks in `brands.yaml`, after you type the group's name to confirm.
 Groups set up by hand in `brands.yaml` (Note apps, Skincare, Stationery) can only be removed there.
 `python collector.py --requests-once` works through pending requests from the terminal.
+
+### The app and ordering category
+
+Brands with a store id (`app_store_id` or `play_store_id`) are classified with their industry profile **plus**
+one complaint category, *app and ordering experience* ("the mobile app or online ordering, such as app
+crashes, login problems, payment errors, wrong or missing items in an order, or delivery tracking"). Without
+it, a restaurant's app complaints are spread over whichever product category is nearest (*delivery*,
+*freshness/quality*). It is a complaint category, so a neutral "the app logged me out" counts in topics, the
+matrix and the report. It applies to every profile except software and only to the brands that have an app:
+competitors without store ids keep the plain industry categories. The brand's model version gets an `.app`
+tag (`p4.food_beverage1.app-…`), so adding store ids to a brand makes its old rows outdated:
+
+```bash
+python -m nlp.pipeline --reanalyse --model-version outdated --brand "McDonald's"   # only that brand's rows
+python -m nlp.topics --brand "McDonald's" && python -m nlp.priority
+python -m nlp.llm --labels --briefings --force --brand "McDonald's"
+```
 
 ## Tracking another industry
 

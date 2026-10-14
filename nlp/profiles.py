@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from functools import lru_cache
 from pathlib import Path
 
@@ -13,6 +13,14 @@ from config import PROJECT_ROOT
 PROFILES_FILE = PROJECT_ROOT / "profiles.yaml"
 DEFAULT_PROFILE = "consumer_product"
 SOFTWARE = "software"
+
+# A brand with its own app (store ids in brands.yaml) gets one more complaint category on top of its
+# industry profile: people write about the app and the ordering flow, not the product. Software profiles
+# already cover that. The brand's profile key is "<profile>+app" (see profile_key / get_profile).
+APP_CATEGORY = "app and ordering experience"
+APP_HYPOTHESIS = ("the mobile app or online ordering, such as app crashes, login problems, payment errors, "
+                  "wrong or missing items in an order, or delivery tracking")
+APP_SUFFIX = "+app"
 
 
 @dataclass(frozen=True)
@@ -27,6 +35,7 @@ class Profile:
     request: str | None
     features: dict[str, list[str]]
     sources: tuple[str, ...]
+    app: bool = False  # the app and ordering category was added (brands with store ids, not software)
 
     def is_complaint(self, sentiment: str | None, category: str | None) -> bool:
         if sentiment == "negative":
@@ -38,7 +47,9 @@ class Profile:
     @property
     def version_tag(self) -> str:
         """Part of model_version. Empty for software, so existing software rows keep their version."""
-        return "" if self.name == SOFTWARE else f".{self.name}{self.version}"
+        if self.name == SOFTWARE:
+            return ""
+        return f".{self.name}{self.version}" + (".app" if self.app else "")
 
 
 def _parse(name: str, raw: dict) -> Profile:
@@ -65,9 +76,34 @@ def parse_profile(name: str, raw: dict) -> Profile:
     return _parse(name, raw)
 
 
+def with_app(profile: Profile) -> Profile:
+    """The profile plus the app and ordering category (a complaint), before the non-complaint labels.
+    Software and profiles that already have it are returned as they are."""
+    if profile.name == SOFTWARE or profile.app or APP_CATEGORY in profile.categories:
+        return profile
+    categories: dict[str, str] = {}
+    added = False
+    for label, hypothesis in profile.categories.items():
+        if not added and label not in profile.complaints:
+            categories[APP_CATEGORY], added = APP_HYPOTHESIS, True
+        categories[label] = hypothesis
+    if not added:
+        categories[APP_CATEGORY] = APP_HYPOTHESIS
+    return replace(profile, categories=categories, complaints=(*profile.complaints, APP_CATEGORY), app=True)
+
+
+def profile_key(name: str | None, app_store_id: str | None = None, play_store_id: str | None = None) -> str:
+    """The name to resolve a brand's profile with: '<profile>+app' for a brand with a store id."""
+    name = name or DEFAULT_PROFILE
+    if (app_store_id or play_store_id) and name != SOFTWARE and not name.endswith(APP_SUFFIX):
+        return name + APP_SUFFIX
+    return name
+
+
 def clear_cache() -> None:
     """Forget the loaded profiles (after a new one was added to profiles.yaml)."""
     _cached.cache_clear()
+    _with_app_cache.clear()
 
 
 def load_profiles(path: Path = PROFILES_FILE) -> dict[str, Profile]:
@@ -83,10 +119,20 @@ def _cached() -> dict[str, Profile]:
     return load_profiles()
 
 
+_with_app_cache: dict[str, Profile] = {}
+
+
 def get_profile(name: str | None) -> Profile:
-    """The named profile, or the generic consumer_product fallback."""
+    """The named profile, or the generic consumer_product fallback. 'name+app' (see profile_key) is the
+    profile with the app and ordering category added."""
     profiles = _cached()
-    return profiles.get(name or DEFAULT_PROFILE, profiles[DEFAULT_PROFILE])
+    base, plus, flag = (name or DEFAULT_PROFILE).partition("+")
+    profile = profiles.get(base, profiles[DEFAULT_PROFILE])
+    if plus + flag == APP_SUFFIX:
+        if profile.name not in _with_app_cache:
+            _with_app_cache[profile.name] = with_app(profile)
+        return _with_app_cache[profile.name]
+    return profile
 
 
 def profile_names() -> list[str]:

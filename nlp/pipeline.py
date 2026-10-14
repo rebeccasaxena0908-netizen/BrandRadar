@@ -25,7 +25,7 @@ from collections.abc import Sequence
 from dataclasses import dataclass, field
 from typing import Any
 
-from sqlalchemy import delete, or_, select, update
+from sqlalchemy import delete, func, or_, select, update
 from sqlalchemy.orm import Session, sessionmaker
 
 from config import settings
@@ -33,7 +33,7 @@ from db.models import Analysis, Brand, Mention
 from nlp.models import ALL_MODELS, EMOTION_MODEL, SENTIMENT_MODEL, ZERO_SHOT_MODEL, Analyzer, Scores
 from nlp.features import Features, matched_features, normalise_features
 from nlp.language import ANALYSED, detect_language
-from nlp.profiles import SOFTWARE, Profile, get_profile
+from nlp.profiles import SOFTWARE, Profile, get_profile, profile_key
 from nlp.text import clean_text
 
 log = logging.getLogger("nlp.pipeline")
@@ -207,8 +207,7 @@ def delete_for_reanalysis(
     if version_filter == "outdated":
         # current_version is the software one; other profiles have their own (see current_versions)
         current = current_versions(session, current_version)
-        stale = [Mention.brand_id.in_(select(Brand.id).where(Brand.profile == p)) & (Analysis.model_version != v)
-                 for p, v in current.items()]
+        stale = [Mention.brand_id.in_(brands_with_key(p)) & (Analysis.model_version != v) for p, v in current.items()]
         stmt = stmt.where(or_(Analysis.model_version.is_(None),
                               Analysis.mention_id.in_(select(Mention.id).where(or_(*stale)))))
     elif version_filter:
@@ -216,11 +215,22 @@ def delete_for_reanalysis(
     return session.execute(stmt.execution_options(synchronize_session=False)).rowcount or 0
 
 
+def brands_with_key(key: str) -> Any:
+    """Subquery: ids of the brands whose profile key (profile_key) is `key`."""
+    base = key.split("+", 1)[0]
+    has_app = (func.coalesce(Brand.app_store_id, "") != "") | (func.coalesce(Brand.play_store_id, "") != "")
+    stmt = select(Brand.id).where(Brand.profile == base)
+    if base != SOFTWARE:  # software never gets the app category
+        stmt = stmt.where(has_app if key != base else ~has_app)
+    return stmt
+
+
 def current_versions(session: Session, software_version: str) -> dict[str, str]:
-    """profile -> current model_version, for every profile in use (derived from the software one)."""
+    """profile key -> current model_version, for every profile in use (derived from the software one).
+    A key is the profile name, or 'name+app' for a brand with store ids (it has one more category)."""
     suffix = software_version.split("-", 1)[1]
-    profiles = set(session.scalars(select(Brand.profile))) | {SOFTWARE}
-    return {p: f"p{PIPELINE_VERSION}{get_profile(p).version_tag}-{suffix}" for p in profiles}
+    keys = {profile_key(p, a, g) for p, a, g in session.execute(select(Brand.profile, Brand.app_store_id, Brand.play_store_id))}
+    return {k: f"p{PIPELINE_VERSION}{get_profile(k).version_tag}-{suffix}" for k in keys | {SOFTWARE}}
 
 
 def restamp(session: Session, old_version: str, new_version: str) -> int:
@@ -261,7 +271,7 @@ def redetect_languages(session: Session, brands: list[int] | None = None) -> tup
 def select_pending(session: Session, brands: list[int] | None, limit: int | None) -> list[PendingMention]:
     stmt = (
         select(Mention.id, Mention.brand_id, Mention.text, Brand.profile, Mention.language, Mention.text_en,
-               Mention.translation_status)
+               Mention.translation_status, Brand.app_store_id, Brand.play_store_id)
         .join(Brand, Brand.id == Mention.brand_id)
         .outerjoin(Analysis, Analysis.mention_id == Mention.id)
         .where(Analysis.mention_id.is_(None))
@@ -272,11 +282,12 @@ def select_pending(session: Session, brands: list[int] | None, limit: int | None
     if limit:
         stmt = stmt.limit(limit)
     pending: list[PendingMention] = []
-    for i, b, t, p, lang, text_en, status in session.execute(stmt):
+    for i, b, t, p, lang, text_en, status, app_id, play_id in session.execute(stmt):
+        key = profile_key(p or SOFTWARE, app_id, play_id)  # brands with an app get the app category too
         if status == "ok" and text_en:  # translated by the LLM (nlp/llm/translate.py): analyse the English text
-            pending.append(PendingMention(i, b, clean_text(text_en), p or SOFTWARE, "en"))
+            pending.append(PendingMention(i, b, clean_text(text_en), key, "en"))
         else:
-            pending.append(PendingMention(i, b, clean_text(t), p or SOFTWARE, lang if lang else detect_language(t)))
+            pending.append(PendingMention(i, b, clean_text(t), key, lang if lang else detect_language(t)))
     return pending
 
 

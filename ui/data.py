@@ -38,9 +38,15 @@ CLOUD_STOP_WORDS = {
 
 
 def query_brands(engine: Engine) -> pd.DataFrame:
+    """Brands with their profile key: 'profile+app' for a brand with store ids (it has the extra app and
+    ordering category), so get_profile(row["profile"]) is the profile its mentions were analysed with."""
+    from nlp.profiles import profile_key
+
     with engine.connect() as conn:
-        return pd.read_sql(text("SELECT id, name, is_own, keywords, brand_group, profile FROM brands "
-                                "ORDER BY brand_group, is_own DESC, name"), conn)
+        df = pd.read_sql(text("SELECT id, name, is_own, keywords, brand_group, profile, app_store_id, play_store_id "
+                              "FROM brands ORDER BY brand_group, is_own DESC, name"), conn)
+    df["profile"] = [profile_key(p, a, g) for p, a, g in zip(df["profile"], df["app_store_id"], df["play_store_id"])]
+    return df.drop(columns=["app_store_id", "play_store_id"])
 
 
 def query_mentions(

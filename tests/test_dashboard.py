@@ -242,6 +242,22 @@ def test_group_selector_keeps_everything_within_the_group(app) -> None:  # type:
     assert at.multiselect[0].options == ["ClickUp"]
 
 
+def test_brand_rows_carry_the_profile_key_with_the_app_category(engine) -> None:  # type: ignore[no-untyped-def]
+    from nlp.profiles import APP_CATEGORY, get_profile
+
+    with sessionmaker(bind=engine)() as s:
+        s.add(Brand(name="McDonald's", is_own=True, keywords=["mcdonalds"], brand_group="Fast food", profile="food_beverage",
+                    app_store_id="922103212"))
+        s.add(Brand(name="Wendy's", is_own=False, keywords=["wendys"], brand_group="Fast food", profile="food_beverage"))
+        s.commit()
+    df = data.query_brands(engine).set_index("name")
+    assert list(data.query_brands(engine).columns) == ["id", "name", "is_own", "keywords", "brand_group", "profile"]
+    assert df.loc["McDonald's", "profile"] == "food_beverage+app" and df.loc["Wendy's", "profile"] == "food_beverage"
+    assert df.loc["Notion", "profile"] == "software"  # software never gets it, even with store ids
+    assert APP_CATEGORY in get_profile(df.loc["McDonald's", "profile"]).complaints
+    assert get_profile(df.loc["McDonald's", "profile"]).name == "food_beverage"  # the industry name is unchanged
+
+
 def test_groups_keep_the_order_they_were_added(engine, app) -> None:  # type: ignore[no-untyped-def]
     with sessionmaker(bind=engine)() as s:  # tracked from the dashboard later, alphabetically first
         s.add(Brand(name="Nivea", is_own=True, keywords=["nivea"], brand_group="Body lotions", profile="beauty_skincare"))

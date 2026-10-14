@@ -117,6 +117,11 @@ python -m nlp.llm --check | --translate [--redo] | --labels --briefings [--brand
   line, never as "risk: none" (small models garble those). `last7` regenerates on a new `facts_hash`,
   `week` is written once. Tests force NoneProvider (conftest) and mock the LLM; never call a real one.
   Schema changes for an existing DB go in `db/migrations/` (`010_llm.sql`).
+- App category: a non-software brand with `app_store_id`/`play_store_id` is analysed with `get_profile("<profile>+app")`
+  (`nlp/profiles.with_app`: one more category + complaint `APP_CATEGORY`, model_version tag `.app`). Always resolve a
+  brand's profile with `profile_key(profile, app_store_id, play_store_id)` (pipeline, topics, `ui.data.query_brands`
+  already do); `Brand.profile` itself stays the plain name. Changing a brand's store ids makes its rows outdated:
+  `--reanalyse --model-version outdated --brand X`, then topics, priority, labels, briefings.
 - Track any brand (Step 11, `tracking/`): `store.py` owns brand_requests statuses (conditional UPDATEs: claimed
   once, Cancel during research wins); `setup.py` turns `nlp/llm/research.py` answers (market + per-brand rules,
   each field checked, rule-based fallback) into a JSON setup, dry-runs it and converts it to BrandEntry;

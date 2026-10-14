@@ -397,3 +397,14 @@ def test_crowded_topics_need_a_closer_match(monkeypatch: pytest.MonkeyPatch) -> 
     assert sorted(run(), key=str) == [2, None]  # one half continues B, the other becomes a new topic
     monkeypatch.setattr(topics_module, "SIBLING_MARGIN", -1.0)  # i.e. a fixed 0.80 threshold
     assert sorted(run(), key=str) == [1, 2]  # ...which hands A's id to half of B: the drift this prevents
+
+
+def test_app_and_ordering_category_counts_as_a_complaint_for_brands_with_an_app() -> None:
+    from nlp.profiles import APP_CATEGORY, profile_key
+
+    plain = get_profile("food_beverage")
+    with_app = get_profile(profile_key("food_beverage", "922103212", None))
+    assert is_complaint("neutral", APP_CATEGORY, with_app)  # "the app logged me out" is not a negative review
+    assert not is_complaint("neutral", APP_CATEGORY, plain)
+    assert is_complaint("negative", "praise", plain) and not is_complaint("positive", APP_CATEGORY, with_app)
+
