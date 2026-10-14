@@ -9,8 +9,6 @@
 overrides:
   # Notion — organising/journaling praise (not complaints)
   31: Praise for Organising
-  # Notion — comparisons with other tools plus doubts about its future and its Android app
-  33: Comparisons and Doubts
   # Notion — paywall after setup, AI usage limits, trial nag screens
   38: Paywall and AI Limits
   # Evernote — long-time users quitting over decline, glitches and billing (was "Price Rises Driving Switch")
@@ -22,3 +20,5 @@ overrides:
   # Obsidian — add-ons and alternatives: Web Clipper, Org Mode, PlantUML (was "Clones and Web Ports")
   54: Tools and Alternatives
   # Dropped: #39 Short Student Praise and #53 Plugin Ideas and Projects (those topics no longer exist)
+  # Dropped 2026-10-14: #33 Comparisons and Doubts (its mentions are now about slow large databases;
+  # the AI label describes it better)
