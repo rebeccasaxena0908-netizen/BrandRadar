@@ -10,6 +10,7 @@ from dataclasses import dataclass
 import pandas as pd
 
 from nlp.priority import FIX_NOW, IGNORE, MONITOR, QUICK_WINS, quadrant
+from nlp.profiles import APP_CATEGORY, Profile
 from nlp.text import clean_text
 from nlp.topics import looks_english
 
@@ -18,6 +19,8 @@ MIN_FEATURE_MENTIONS = 5  # a feature needs this many mentions for at least one 
 MIN_POINT_MENTIONS = 3  # a brand's radar point needs this many mentions for that feature
 MIN_RADAR_FEATURES = 3
 MIN_REQUESTS_FOR_TOP = 2  # a "top requested feature" needs at least this many requests
+MIN_AREA_COMPLAINTS = 5  # a "largest complaint area" needs at least this many complaints
+MIN_AREA_THEMES = 2  # ...spread over at least this many themes (one theme is just that theme)
 
 
 # ---------------------------------------------------------------- priority matrix
@@ -137,6 +140,80 @@ def feature_table(df: pd.DataFrame, brand_ids: list[int]) -> FeatureTable:
     return FeatureTable(features, net, counts[features])
 
 
+# ---------------------------------------------------------------- complaint categories (the roll-up)
+
+
+def topic_category_map(topics: pd.DataFrame) -> dict[int, str]:
+    """topic id -> its dominant category (topics.category), for the topics that have one."""
+    if topics.empty or "category" not in topics:
+        return {}
+    return {int(i): str(c) for i, c in zip(topics["id"], topics["category"]) if isinstance(c, str) and c}
+
+
+def complaint_counts(mentions: pd.DataFrame, profile: Profile, excluded_sources: tuple[str, ...] = (),
+                     topic_categories: dict[int, str] | None = None) -> pd.Series:
+    """Complaints per profile complaint category, the way topics count them (excluded sources left out).
+
+    A mention clustered into a topic counts under that topic's dominant category, so a category's number is
+    the sum of its themes (plus complaints no topic holds, counted under their own category). Without
+    `topic_categories` every complaint counts under its own zero-shot category."""
+    if mentions.empty:
+        return pd.Series(dtype=int)
+    rows = mentions[~mentions["source"].isin(excluded_sources)]
+    if rows.empty:
+        return pd.Series(dtype=int)
+    own = pd.Series([c in profile.complaints and profile.is_complaint(s, c)
+                     for s, c in zip(rows["sentiment"], rows["category"])], index=rows.index, dtype=bool)
+    if topic_categories and "topic_id" in rows:
+        in_topic = rows["topic_id"].map(lambda t: topic_categories.get(int(t)) if pd.notna(t) else None)
+    else:
+        in_topic = pd.Series([None] * len(rows), index=rows.index, dtype=object)
+    clustered = in_topic.notna()  # topics are built from complaints: a member is one
+    category = in_topic.where(clustered, rows["category"])
+    keep = (clustered | own) & category.isin(profile.complaints)
+    return category[keep].value_counts()
+
+
+def category_name(label: str) -> str:
+    """A category label as a name: 'app and ordering experience' -> 'App and ordering problems'."""
+    if label == APP_CATEGORY:
+        return "App and ordering problems"
+    return label[:1].upper() + label[1:]
+
+
+@dataclass
+class ComplaintArea:
+    """The category with the most complaints, set against the single biggest theme."""
+    category: str
+    name: str
+    this: int  # complaints in the period
+    last: int  # the period before
+    themes: int  # topics (complaint themes) whose dominant category it is
+    top_theme: int  # complaints in the biggest single theme (this week's volume)
+
+    @property
+    def larger(self) -> bool:
+        """Worth saying: the area beats the top single theme, and is several themes, not one."""
+        return self.this >= MIN_AREA_COMPLAINTS and self.themes >= MIN_AREA_THEMES and self.this > self.top_theme
+
+
+def largest_area(this: pd.Series, last: pd.Series, matrix: pd.DataFrame) -> ComplaintArea | None:
+    """The biggest complaint category of the period, with how many themes it is spread over."""
+    if this.empty or int(this.max()) <= 0:
+        return None
+    category = str(this.idxmax())
+    live = matrix[matrix["volume_7d"] > 0] if not matrix.empty else matrix
+    themes = int((live["category"] == category).sum()) if not live.empty else 0
+    top = int(live["volume_7d"].max()) if not live.empty else 0
+    return ComplaintArea(category, category_name(category), int(this[category]), int(last.get(category, 0)), themes, top)
+
+
+def area_line(area: ComplaintArea) -> str:
+    """The roll-up as a summary line (HTML-safe, <b> for emphasis)."""
+    return (f"Largest complaint area: <b>{html.escape(area.name)}</b> — {area.this} complaint"
+            f"{'s' if area.this != 1 else ''} across {area.themes} themes, {change_phrase(area.this, area.last)}.")
+
+
 # ---------------------------------------------------------------- executive summary
 
 
@@ -146,6 +223,7 @@ class Summary:
     win: str
     request: str
     change: str
+    area: str = ""  # the complaint-category roll-up line, only when it is larger than the top single theme
 
 
 def _fmt_net(value: float) -> str:
@@ -209,6 +287,7 @@ def summary_picks(
     net_change: float | None,
     days: int,
     request_label: str | None = "feature request",
+    area: ComplaintArea | None = None,
 ) -> Summary:
     """Four plain-language lines built from the numbers only (no LLM). Values are HTML-safe text with
     <b> for emphasis."""
@@ -263,4 +342,5 @@ def summary_picks(
         points = abs(round(net_change))
         change = (f"Net sentiment is <b>{_fmt_net(net_sentiment)}</b>, {direction} {points} point{'s' if points != 1 else ''} "
                   f"on the previous {days} days.")
-    return Summary(risk=risk, win=win, request=request, change=change)
+    return Summary(risk=risk, win=win, request=request, change=change,
+                   area=area_line(area) if area is not None and area.larger else "")

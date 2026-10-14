@@ -237,3 +237,8 @@ h1, h2, h3, h4 { font-family: Montserrat, sans-serif; color: var(--ink); }
   .br-track-samples { grid-template-columns: 1fr; }
   .br-track-age { margin-left: 0; }
 }
+
+/* Complaint-category roll-up (Step 11 follow-up) */
+.br-summary-area .br-summary-mark { background: var(--rose-deep); }
+.br-area-note { color: var(--ink-soft); margin-top: 6px; }
+.br-area-note b { color: var(--berry); }

@@ -220,8 +220,8 @@ brands:
     keywords: [mcdonald's, mcdonalds, mcdonald’s]
     youtube_queries: [McDonald's review, McDonald's reviews]
     sources: [youtube, news, reddit, mastodon, appstore, playstore]
-    app_store_id: '922103212'
-    play_store_id: com.mcdonalds.mobileapp
+    app_store_id: '922103212'      # McDonald's, McDonalds USA LLC (verified 2026-10-14)
+    play_store_id: com.mcdonalds.app  # McDonald's, McDonalds USA, LLC: the US app (com.mcdonalds.mobileapp is the international one)
 
   - name: Burger King
     group: Fast food restaurants
@@ -229,13 +229,21 @@ brands:
     is_own: false
     keywords: [burger king, burgerking]
     youtube_queries: [Burger King review, Burger King reviews]
+    sources: [youtube, news, reddit, mastodon, appstore, playstore]
+    app_store_id: '638323895'      # BURGER KING® App, Burger King Corporation (US; verified 2026-10-14)
+    play_store_id: com.emn8.mobilem8.nativeapp.bk  # BURGER KING® App, Burger King, Inc. (US)
 
   - name: Wendy's
     group: Fast food restaurants
     profile: food_beverage
     is_own: false
     keywords: [wendy's, wendys, wendy’s]
+    # a reality-TV recap titled "Potomac is back! Wendy's G-Wagon Drama" brought 187 off-topic comments (2026-10-14)
+    exclude_if: [potomac, housewives, rhop]  # lowercase = any case (the title says POTOMAC)
     youtube_queries: [Wendy's review, Wendy's reviews]
+    sources: [youtube, news, reddit, mastodon, appstore, playstore]
+    app_store_id: '540518599'      # Wendy’s, Wendys International, LLC (verified 2026-10-14)
+    play_store_id: com.wendys.nutritiontool  # Wendy’s, Wendy's Int'l., LLC
 
   - name: Taco Bell
     group: Fast food restaurants
@@ -243,3 +251,6 @@ brands:
     is_own: false
     keywords: [taco bell, tacobell]
     youtube_queries: [Taco Bell review, Taco Bell reviews]
+    sources: [youtube, news, reddit, mastodon, appstore, playstore]
+    app_store_id: '497387361'      # Taco Bell Fast Food & Delivery, Taco Bell (verified 2026-10-14)
+    play_store_id: com.tacobell.ordering  # Taco Bell Fast Food & Delivery, Taco Bell Mobile

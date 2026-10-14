@@ -46,6 +46,7 @@ def system_prompt(facts: dict[str, Any]) -> str:
     invents one ("the biggest risk is the net sentiment of +53")."""
     parts = [name for name, present in (
         ("the biggest risk", facts["biggest_risk"] is not None),
+        ("the largest complaint area", bool(facts.get("largest_complaint_area"))),
         ("the biggest win against the competitors", bool(facts["biggest_win"] and facts["biggest_win"]["beats_competitors"])),
         ("the top request", bool(facts["requests"]["count"])),
         ("the notable change", facts["rising_topic"] is not None),
@@ -106,6 +107,14 @@ def build_facts(engine: Engine, brand_id: int, start: date, end: date, period_te
                 "complaints_last_7_days": this, "complaints_7_days_before": last,
                 "times_last_week": round(this / last, 1) if last else None, "pain": round(float(t["pain"] or 0), 2),
                 "urgent": kind != "watch"}
+    themes = insights.topic_category_map(topics)
+    area = insights.largest_area(
+        insights.complaint_counts(own, profile, settings.topic_excluded_sources, themes),
+        insights.complaint_counts(own_prev, profile, settings.topic_excluded_sources, themes), matrix)
+    largest_area = None
+    if area is not None and area.larger:  # only when it beats the top single theme: the roll-up says what themes can't
+        largest_area = {"category": area.name, "complaints": area.this, "complaints_before": area.last,
+                        "themes": area.themes, "biggest_single_theme_complaints": area.top_theme}
     win = None
     if (won := insights.biggest_win(table, brand_id, [int(c) for c in comps["id"]])) is not None:
         kind, feature, own_net, rival_net = won
@@ -134,7 +143,7 @@ def build_facts(engine: Engine, brand_id: int, start: date, end: date, period_te
         "mentions_change_percent": _int(k.mentions_change_pct),
         "net_sentiment": _int(k.net_sentiment), "net_sentiment_change_points": _int(k.net_sentiment_change),
         "top_emotion": k.top_emotion,
-        "biggest_risk": risk, "biggest_win": win,
+        "biggest_risk": risk, "largest_complaint_area": largest_area, "biggest_win": win,
         "requests": {"label": profile.request, "count": total, "top_feature": insights.feature_name(feature) if feature else None,
                      "top_feature_count": count or None},
         "rising_topic": rising, "quotes": quotes,
@@ -177,6 +186,11 @@ def fact_lines(facts: dict[str, Any]) -> str:
         lead = "Biggest risk" if r["urgent"] else "No urgent risk; theme to watch"
         lines.append(f"{lead}: the theme \"{r['topic']}\" ({r['category'] or 'mixed'} complaints, priority {r['priority']}). "
                      f"Complaints in the last 7 days: {_versus(r['complaints_last_7_days'], r['complaints_7_days_before'])}.")
+    a = f.get("largest_complaint_area")
+    if a:
+        lines.append(f"Largest complaint area: {a['category']}, spread across {a['themes']} themes. Complaints in "
+                     f"the last 7 days: {_versus(a['complaints'], a['complaints_before'])}. The biggest single "
+                     f"theme alone has {a['biggest_single_theme_complaints']}.")
     w = f["biggest_win"]
     if w is None:
         missing.append("a win against competitors")

@@ -118,6 +118,23 @@ def test_thin_sections_render_the_designed_note(thin_engine) -> None:  # type: i
     assert "No spikes this week" in text and "Inkwell" in text and "DEMO DATA" not in text
 
 
+def test_roll_up_line_and_bar_chart_in_the_pdf(demo_engine, monkeypatch) -> None:  # type: ignore[no-untyped-def]
+    from ui import insights
+
+    monkeypatch.setattr(weekly, "settings", dataclasses.replace(weekly.settings, demo=True))
+    rep = weekly.gather(demo_engine, "Laneige", W41, NOW)
+    top = rep.complaints_this.idxmax()
+    forced = insights.ComplaintArea(top, insights.category_name(top), int(rep.complaints_this.max()), 3, 4, 2)
+    assert forced.larger
+    rep = dataclasses.replace(rep, area=forced, summary=dataclasses.replace(rep.summary, area=insights.area_line(forced)))
+    stub = StubRenderer()
+    text = " ".join(pdf_text(weekly.build_pdf(rep, stub)))
+    assert "Largest complaint area" in text and "across 4 themes" in text and "The biggest single theme has 2" in text
+    assert [kind for kind, *_ in stub.calls].count("bar") == 1  # the category bar chart is still there, once
+    quiet = dataclasses.replace(rep, area=None, summary=dataclasses.replace(rep.summary, area=""))
+    assert "Largest complaint area" not in " ".join(pdf_text(weekly.build_pdf(quiet, StubRenderer())))
+
+
 def test_generate_names_files_by_brand_and_week(demo_engine, tmp_path) -> None:  # type: ignore[no-untyped-def]
     paths = weekly.generate(demo_engine, ["DOMS", "Notion"], W41, tmp_path, r=StubRenderer())
     assert [p.name for p in paths] == ["brandradar-doms-2026-W41.pdf", "brandradar-notion-2026-W41.pdf"]

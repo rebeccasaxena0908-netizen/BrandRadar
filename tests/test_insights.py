@@ -192,3 +192,85 @@ def test_summary_fallbacks() -> None:
 def test_summary_escapes_labels() -> None:
     evil = insights.topic_matrix(topics((1, "<script>x</script>", 10, 10, 0.5, -0.8, 20)), VOL, PAIN, PRAISE)
     assert "<script>" not in summary(matrix=evil).risk
+
+
+# ---------------------------------------------------------------- complaint-category roll-up
+
+
+def area_matrix(*rows: tuple[int, str, str, int]) -> pd.DataFrame:
+    """Topics as (id, label, category, volume_7d); the roll-up only reads category and volume_7d."""
+    return pd.DataFrame([{"id": i, "label": label, "category": category, "volume_7d": v, "volume_prev_7d": 0}
+                         for i, label, category, v in rows])
+
+
+def test_complaint_counts_follow_the_profile_and_leave_out_excluded_sources() -> None:
+    from nlp.profiles import APP_CATEGORY, get_profile
+
+    profile = get_profile("food_beverage+app")
+    df = pd.DataFrame({
+        "source": ["playstore", "playstore", "news", "youtube", "youtube", "youtube"],
+        "category": [APP_CATEGORY, APP_CATEGORY, APP_CATEGORY, "taste", "praise", APP_CATEGORY],
+        "sentiment": ["negative", "neutral", "negative", "negative", "positive", "positive"],
+    })
+    counts = insights.complaint_counts(df, profile, excluded_sources=("news",))
+    # the neutral app mention counts (complaint category), news is left out, a positive app mention is not a complaint
+    assert counts.to_dict() == {APP_CATEGORY: 2, "taste": 1}
+    assert insights.complaint_counts(df.iloc[0:0], profile).empty
+
+
+def test_a_clustered_complaint_counts_under_its_themes_category() -> None:
+    from nlp.profiles import APP_CATEGORY, get_profile
+
+    profile = get_profile("food_beverage+app")
+    df = pd.DataFrame({
+        "source": ["playstore"] * 6,
+        # zero-shot said taste for two of the app theme's members; one complaint is in no topic; one is praise
+        "category": [APP_CATEGORY, "taste", "taste", "taste", "delivery", "praise"],
+        "sentiment": ["negative", "negative", "negative", "negative", "negative", "positive"],
+        "topic_id": [1, 1, 1, None, None, 1],
+    })
+    themes = {1: APP_CATEGORY}
+    assert insights.complaint_counts(df, profile).to_dict() == {"taste": 3, APP_CATEGORY: 1, "delivery": 1}
+    counted = insights.complaint_counts(df, profile, topic_categories=themes).to_dict()
+    # 4 members of the app theme (the positive one is clustered too: topics hold only complaints), then the rest
+    assert counted == {APP_CATEGORY: 4, "taste": 1, "delivery": 1}
+    # a theme whose dominant category is not a complaint category adds nothing
+    assert insights.complaint_counts(df, profile, topic_categories={1: "praise"}).to_dict() == {"taste": 1, "delivery": 1}
+    assert insights.topic_category_map(pd.DataFrame({"id": [1, 2], "category": [APP_CATEGORY, None]})) == {1: APP_CATEGORY}
+
+
+def test_largest_area_is_set_against_the_top_single_theme() -> None:
+    from nlp.profiles import APP_CATEGORY
+
+    this = pd.Series({APP_CATEGORY: 72, "taste": 34, "delivery": 5})
+    last = pd.Series({APP_CATEGORY: 51, "taste": 10})
+    eight_app_themes = area_matrix(*[(i, f"App {i}", APP_CATEGORY, v) for i, v in enumerate((25, 10, 8, 8, 7, 5, 5, 4))],
+                                   (20, "Quality", "taste", 34))
+    area = insights.largest_area(this, last, eight_app_themes)
+    assert area is not None and (area.category, area.name) == (APP_CATEGORY, "App and ordering problems")
+    assert (area.this, area.last, area.themes, area.top_theme) == (72, 51, 8, 34) and area.larger
+    assert insights.area_line(area) == ("Largest complaint area: <b>App and ordering problems</b> — 72 complaints "
+                                        "across 8 themes, up from 51 last week.")
+    # not worth saying when one theme is as big as the whole category, or it is just one theme
+    one_big = insights.largest_area(pd.Series({"taste": 30}), pd.Series(dtype=int), area_matrix((1, "Quality", "taste", 34)))
+    assert one_big is not None and not one_big.larger
+    single = insights.largest_area(pd.Series({"taste": 30}), pd.Series(dtype=int), area_matrix((1, "Quality", "taste", 12)))
+    assert single is not None and single.themes == 1 and not single.larger  # one theme is just that theme
+    tiny = insights.largest_area(pd.Series({"taste": 3}), pd.Series(dtype=int),
+                                 area_matrix((1, "A", "taste", 1), (2, "B", "taste", 1)))
+    assert tiny is not None and tiny.themes == 2 and not tiny.larger  # under the minimum
+    assert insights.largest_area(pd.Series(dtype=int), pd.Series(dtype=int), area_matrix()) is None
+    assert insights.category_name("skin reaction") == "Skin reaction"
+
+
+def test_summary_gets_the_roll_up_line_only_when_it_is_larger() -> None:
+    from nlp.profiles import APP_CATEGORY
+
+    matrix = area_matrix((1, "A", APP_CATEGORY, 6), (2, "B", APP_CATEGORY, 5), (3, "C", "taste", 4))
+    big = insights.largest_area(pd.Series({APP_CATEGORY: 11}), pd.Series({APP_CATEGORY: 11}), matrix)
+    assert summary(area=big).area == ("Largest complaint area: <b>App and ordering problems</b> — 11 complaints "
+                                      "across 2 themes, same as last week.")
+    assert summary(area=None).area == "" and summary().area == ""
+    small = insights.largest_area(pd.Series({"taste": 4}), pd.Series(dtype=int), matrix)
+    assert summary(area=small).area == ""
+

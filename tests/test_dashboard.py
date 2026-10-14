@@ -212,9 +212,10 @@ def test_full_page_renders_for_own_brand(app) -> None:  # type: ignore[no-untype
     assert len(kpis) == 4
     assert kpis[0].startswith("Net sentiment") and "vs previous 14 days" in kpis[0]  # real change, not "no earlier data"
     assert kpis[3].startswith("Open alerts 1")  # the seen alert is not counted
-    # wheel, trend, priority matrix, feature radar
-    assert len(at.get("plotly_chart")) == 4 and len(at.get("imgs")) == 2
+    # wheel, trend, priority matrix, complaints by category, feature radar
+    assert len(at.get("plotly_chart")) == 5 and len(at.get("imgs")) == 2
     md = [m.value for m in at.markdown]
+    assert any("Complaints by category" in m for m in md)  # the roll-up card
     pills = next(m for m in md if 'class="br-alert-list"' in m)
     assert pills.count('class="br-alert-pill') == 2 and pills.count("br-alert-seen") == 1
     assert "Sync Failures" in pills and "old label" not in pills  # current topic label, not the stored message

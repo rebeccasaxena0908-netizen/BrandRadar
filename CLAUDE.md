@@ -122,6 +122,12 @@ python -m nlp.llm --check | --translate [--redo] | --labels --briefings [--brand
   brand's profile with `profile_key(profile, app_store_id, play_store_id)` (pipeline, topics, `ui.data.query_brands`
   already do); `Brand.profile` itself stays the plain name. Changing a brand's store ids makes its rows outdated:
   `--reanalyse --model-version outdated --brand X`, then topics, priority, labels, briefings.
+- Complaint roll-up: `ui/insights.complaint_counts` / `largest_area` / `area_line` (pure). The area is only "larger"
+  when it beats the top single theme, spans >= 2 themes and has >= 5 complaints. It feeds the dashboard card
+  (`app.category_card`), `Summary.area`, the briefing fact `largest_complaint_area` and the PDF; keep the three
+  in step. Verify store ids with the iTunes lookup + `google_play_scraper.app()` (US app: developer = brand);
+  Apple's customer-review RSS feed is erratic (empty for many apps and URL forms), so Google Play carries the
+  app comparison.
 - Track any brand (Step 11, `tracking/`): `store.py` owns brand_requests statuses (conditional UPDATEs: claimed
   once, Cancel during research wins); `setup.py` turns `nlp/llm/research.py` answers (market + per-brand rules,
   each field checked, rule-based fallback) into a JSON setup, dry-runs it and converts it to BrandEntry;

@@ -297,6 +297,40 @@ def ranked_topics(matrix: pd.DataFrame) -> None:
         st.markdown(f'<ol class="br-rank">{rows}</ol>', unsafe_allow_html=True)
 
 
+# ---------------------------------------------------------------- complaint categories (roll-up)
+
+
+def category_rollup(brand: pd.Series, end: date, sources: tuple[str, ...]) -> tuple[pd.Series, pd.Series]:
+    """Complaints per category: the 7 days up to the end of the date filter, and the 7 days before."""
+    window = data.mentions((int(brand["id"]),), end - timedelta(days=13), end, sources)
+    profile = get_profile(brand["profile"])
+    themes = insights.topic_category_map(data.topics(int(brand["id"])))  # a clustered complaint counts under its theme
+    cut = pd.Timestamp(end - timedelta(days=6))
+    this = insights.complaint_counts(window[window["created_at"] >= cut], profile, settings.topic_excluded_sources, themes)
+    last = insights.complaint_counts(window[window["created_at"] < cut], profile, settings.topic_excluded_sources, themes)
+    return this, last
+
+
+def category_card(brand: pd.Series, this: pd.Series, last: pd.Series, matrix: pd.DataFrame) -> None:
+    """Complaints per category, this week against last: the roll-up the single themes can't show."""
+    industry = get_profile(brand["profile"]).name.replace("_", " ")
+    with glass_card("categories"):
+        section_title("Complaints by category", f"{industry} categories · last 7 days vs the 7 days before")
+        total = int(this.sum() + last.sum())
+        if total < MIN_FOR_CHART:
+            empty_state("Not enough data yet", f"{total} categorised complaint(s) for {brand['name']} in these two "
+                        f"weeks; the chart needs at least {MIN_FOR_CHART}.", height=200)
+            return
+        totals = this.add(last, fill_value=0)
+        labels = [c for c in totals.sort_values(ascending=False).index[:8] if totals[c] > 0]
+        fig = charts.category_figure(this.reindex(labels, fill_value=0), last.reindex(labels, fill_value=0))
+        show_chart(fig, height=70 + 34 * len(labels))
+        area = insights.largest_area(this, last, matrix)
+        if area is not None and area.larger:
+            st.markdown(f'<div class="br-note br-area-note">{insights.area_line(area)} The biggest single theme '
+                        f'has {area.top_theme}.</div>', unsafe_allow_html=True)
+
+
 # ---------------------------------------------------------------- alerts
 
 
@@ -357,12 +391,13 @@ def stars(rating: object) -> str:
 
 
 def executive_summary(brand: pd.Series, comps: list[pd.Series], matrix: pd.DataFrame, table: insights.FeatureTable,
-                      current: pd.DataFrame, previous: pd.DataFrame, days: int) -> None:
+                      current: pd.DataFrame, previous: pd.DataFrame, days: int,
+                      area: insights.ComplaintArea | None = None) -> None:
     own = current[current["brand_id"] == brand["id"]]
     k = data.compute_kpis(own, previous)
     summary = insights.summary_picks(brand["name"], matrix, table, int(brand["id"]), [int(c["id"]) for c in comps],
                                      current, k.net_sentiment, k.net_sentiment_change, days,
-                                     get_profile(brand["profile"]).request)
+                                     get_profile(brand["profile"]).request, area)
     written = data.briefing(int(brand["id"]))  # LLM briefing (nlp/llm/briefing.py), if the collector wrote one
     if written and written["end_date"] < date.today() - timedelta(days=1):
         written = None  # stale (collector stopped): the rule-based lines follow the filters instead
@@ -377,6 +412,8 @@ def executive_summary(brand: pd.Series, comps: list[pd.Series], matrix: pd.DataF
         else:
             section_title("Executive summary", f"{brand['name']} this period, in 20 seconds · built from the numbers above")
             lines = [("risk", summary.risk), ("win", summary.win), ("request", summary.request), ("change", summary.change)]
+            if summary.area:  # the largest complaint category, when it beats the top single theme
+                lines.insert(1, ("area", summary.area))
             st.markdown('<ul class="br-summary">' + "".join(
                 f'<li class="br-summary-{kind}"><span class="br-summary-mark"></span><span>{line}</span></li>'
                 for kind, line in lines) + "</ul>", unsafe_allow_html=True)
@@ -489,6 +526,8 @@ def main() -> None:
     wide, side = st.columns([1.7, 1], gap="medium")
     with wide:
         matrix = priority_matrix(brand)
+        this_cats, last_cats = category_rollup(brand, end, sources)
+        category_card(brand, this_cats, last_cats, matrix)
     with side:
         live_alerts(brand, start, end)
         ranked_topics(matrix)
@@ -496,7 +535,8 @@ def main() -> None:
     with left:
         table = feature_radar(brand, comps, colours)
     with right:
-        executive_summary(brand, comps, matrix, table, current, previous, days)
+        executive_summary(brand, comps, matrix, table, current, previous, days,
+                          insights.largest_area(this_cats, last_cats, matrix))
     export_card(brand, ids, start, end, sources)
     track_card()
     st.markdown(f'<div class="br-footnote">{start:%d %b} – {end:%d %b %Y} · '

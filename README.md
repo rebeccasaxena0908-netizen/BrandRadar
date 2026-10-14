@@ -336,10 +336,26 @@ mentions 10 min, translating 88 non-English mentions 9 min, topics 0.5 min, labe
 635 analysed McDonald's mentions (500 Google Play reviews, 127 YouTube comments, 22 Mastodon posts). The
 group first used the plain `food_beverage` profile, which has no category for app problems, so app
 complaints were spread over *delivery*, *freshness/quality* and *health/ingredients*. Brands with store ids
-now also get the *app and ordering experience* category (see [above](#the-app-and-ordering-category)):
-re-analysed, 186 of McDonald's 635 mentions fall in it, and 8 of its 11 topics are app topics (*App Loading
-Issues*, *App Ordering Problems*, *Redemption System Failure*…) next to *Decreased Product Quality* and
-*Disappointing Halloween Products*. Nivea ended as *Not enough data yet*.
+now also get the *app and ordering experience* category (see [above](#the-app-and-ordering-category)).
+Nivea ended as *Not enough data yet*.
+
+**Comparing the apps.** The store ids of all four fast-food brands were verified against the US apps (the
+research had first picked McDonald's *international* Play app, whose 500 reviews were replaced). On their
+newest ~500 Google Play reviews, 56% of McDonald's, 45% of Taco Bell's, 27% of Wendy's and 17% of Burger
+King's reviews fall in *app and ordering experience*, and it is the largest complaint area for all four
+(McDonald's: 422 complaints across 6 themes in the last 7 days). Read these with three caveats:
+
+- **Windows differ.** The Play source keeps the newest 500 reviews, which is 4 days for McDonald's
+  (Oct 9–13) and 3–4 weeks for the others. Week-over-week change is empty for McDonald's until the
+  6-hour cycles have collected a second week, so its "new this week" lines and the spike alerts raised by
+  the first backfill are artefacts, not real spikes.
+- **Apple's review feed is unreliable.** The public customer-review RSS returns 50 reviews for some apps
+  and URL forms and nothing for others (Notion's returns nothing at all); only 12 App Store reviews came
+  in (Wendy's). The comparison rests on Google Play.
+- **YouTube is off-topic for Wendy's in places:** one reality-TV recap titled "…Wendy's G-Wagon Drama"
+  supplied 187 of its 216 comments. It is now excluded (`exclude_if: potomac…`); the lesson is that
+  YouTube comments are matched by *video title*, so brand names that are also people's names need
+  `exclude_if` words.
 
 **Removing a group.** *Remove a group added here* deletes a dashboard-added group's brands, mentions,
 analysis, topics and alerts, and its blocks in `brands.yaml`, after you type the group's name to confirm.
@@ -362,6 +378,24 @@ python -m nlp.pipeline --reanalyse --model-version outdated --brand "McDonald's"
 python -m nlp.topics --brand "McDonald's" && python -m nlp.priority
 python -m nlp.llm --labels --briefings --force --brand "McDonald's"
 ```
+
+### Complaints by category (the roll-up)
+
+A single theme can understate a problem that is spread over many themes: McDonald's app complaints are eight
+themes of 4–25 complaints each, next to one product-quality theme of 34. So the dashboard also counts
+complaints **per category**, this week against the week before, the way topics count them (excluded sources
+left out, a complaint category or a negative mention):
+
+- **Dashboard card** *Complaints by category* under the priority matrix: a small bar chart of the biggest
+  categories, last 7 days (up to the date filter's end) against the 7 days before.
+- **Summary, briefing and PDF**: when the biggest category has more complaints than the biggest single
+  theme *and* is spread over at least two themes (and at least 5 complaints), they say so: *"Largest
+  complaint area: App and ordering problems — 72 complaints across 8 themes, up from 51 last week."* The
+  AI briefing gets the same numbers as a fact (checked like every other number); the weekly PDF prints the
+  line under its category chart and in the rule-based summary.
+
+Themes are counted from the topics (a topic's dominant category), complaints from the mentions in the period,
+so "72 complaints across 8 themes" can include mentions that no topic holds (outliers).
 
 ## Tracking another industry
 

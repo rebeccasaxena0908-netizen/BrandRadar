@@ -201,4 +201,4 @@ def test_header_shows_status_and_demo_pill(demo_engine, monkeypatch: pytest.Monk
     assert "Updated" in status  # fixture time is ahead of the real clock, so this reads "just now"
     # demo data fills everything: no designed empty states anywhere
     assert not any('class="br-empty"' in m for m in md)
-    assert len(at.get("plotly_chart")) == 4
+    assert len(at.get("plotly_chart")) == 5  # wheel, trend, matrix, complaints by category, radar

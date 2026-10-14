@@ -104,6 +104,7 @@ class BrandReport:
     summary: insights.Summary
     complaints_this: pd.Series
     complaints_last: pd.Series
+    area: insights.ComplaintArea | None = None  # the largest complaint category (roll-up), if it beats the top theme
     briefing: dict[str, Any] | None = None  # LLM-written briefing for this week (nlp/llm/briefing.py), if any
     demo: bool = False
     generated_at: datetime = field(default_factory=utc_now)
@@ -120,15 +121,11 @@ class BrandReport:
         return (int(self.brand["id"]), self.name), [(int(c["id"]), str(c["name"])) for c in self.comps]
 
 
-def complaint_counts(mentions: pd.DataFrame, profile: Profile) -> pd.Series:
-    """Complaints per profile complaint category, the way topics count them (excluded sources left out)."""
-    if mentions.empty:
-        return pd.Series(dtype=int)
-    rows = mentions[~mentions["source"].isin(settings.topic_excluded_sources)
-                    & mentions["category"].isin(profile.complaints)]
-    mask = pd.Series([profile.is_complaint(s, c) for s, c in zip(rows["sentiment"], rows["category"])],
-                     index=rows.index, dtype=bool)  # a plain [] would select no *columns* when rows is empty
-    return rows.loc[mask, "category"].value_counts()
+def complaint_counts(mentions: pd.DataFrame, profile: Profile, topics: pd.DataFrame | None = None) -> pd.Series:
+    """Complaints per profile complaint category, the way topics count them (excluded sources left out);
+    with `topics`, a clustered complaint counts under its theme's category."""
+    return insights.complaint_counts(mentions, profile, settings.topic_excluded_sources,
+                                     insights.topic_category_map(topics) if topics is not None else None)
 
 
 def find_brand(brands: pd.DataFrame, name_or_id: str | int) -> pd.Series:
@@ -173,8 +170,10 @@ def gather(engine: Engine, brand_ref: str | int, week: Week, now: datetime | Non
 
     feature_df = data.query_feature_mentions(engine, ids)
     table = insights.feature_table(feature_df, list(ids))
+    this_cats, last_cats = complaint_counts(own, profile, topics), complaint_counts(own_prev, profile, topics)
+    area = insights.largest_area(this_cats, last_cats, matrix)
     summary = insights.summary_picks(str(brand["name"]), matrix, table, bid, [int(c["id"]) for c in comps], current,
-                                     kpis.net_sentiment, kpis.net_sentiment_change, 7, profile.request)
+                                     kpis.net_sentiment, kpis.net_sentiment_change, 7, profile.request, area)
     return BrandReport(
         brand=brand, comps=comps, profile=profile, week=week, kpis=kpis,
         open_alerts=data.query_open_alerts(engine, bid),
@@ -183,7 +182,7 @@ def gather(engine: Engine, brand_ref: str | int, week: Week, now: datetime | Non
         alerts=data.query_alerts(engine, bid, week.start, week.end),
         table=table, feature_since=feature_df["created_at"].min() if not feature_df.empty else None,
         quotes=insights.pick_quotes(own), summary=summary,
-        complaints_this=complaint_counts(own, profile), complaints_last=complaint_counts(own_prev, profile),
+        complaints_this=this_cats, complaints_last=last_cats, area=area,
         briefing=data.query_briefing(engine, bid, "week", week.label),
         demo=settings.demo, generated_at=now or utc_now(),
     )
@@ -425,8 +424,8 @@ def kpi_row(rep: BrandReport) -> Table:
 
 
 def summary_section(rep: BrandReport) -> KeepTogether:
-    marks = {"risk": SENTIMENT_COLOURS["negative"], "win": SENTIMENT_COLOURS["positive"], "request": "#E79AA6",
-             "change": BERRY}
+    marks = {"risk": SENTIMENT_COLOURS["negative"], "area": "#E79AA6", "win": SENTIMENT_COLOURS["positive"],
+             "request": "#E79AA6", "change": BERRY}
     if rep.briefing:  # written by the LLM from this report's numbers and quotes; every number was checked
         tag = (f'<font name="Montserrat-Bold" color="{BERRY}">AI-WRITTEN</font>  '
                f'{plain(rep.briefing["model"])} · every number checked against the data')
@@ -434,8 +433,10 @@ def summary_section(rep: BrandReport) -> KeepTogether:
                        [Paragraph(plain(rep.briefing["text"]), style("brief", "Figtree", 9.6, INK, 14.2)),
                         Paragraph(tag, S["small"])])
     s = rep.summary
-    rows = [[Dot(marks[kind], 5.5), Paragraph(markup(line), S["ink"])]
-            for kind, line in (("risk", s.risk), ("win", s.win), ("request", s.request), ("change", s.change))]
+    lines = [("risk", s.risk), ("win", s.win), ("request", s.request), ("change", s.change)]
+    if s.area:  # the largest complaint category, when it beats the top single theme
+        lines.insert(1, ("area", s.area))
+    rows = [[Dot(marks[kind], 5.5), Paragraph(markup(line), S["ink"])] for kind, line in lines]
     t = Table(rows, colWidths=[13, INNER_W - 13])
     t.setStyle(TableStyle([("VALIGN", (0, 0), (-1, -1), "TOP"), ("LEFTPADDING", (0, 0), (-1, -1), 0),
                            ("TOPPADDING", (0, 0), (0, -1), 4.5), ("BOTTOMPADDING", (0, 0), (-1, -1), 3.5)]))
@@ -465,7 +466,11 @@ def categories_section(rep: BrandReport, r: Renderer) -> KeepTogether:
     labels = [c for c in totals.sort_values(ascending=False).index[:MAX_CATEGORIES] if totals[c] > 0]
     fig = charts.category_figure(rep.complaints_this.reindex(labels, fill_value=0),
                                  rep.complaints_last.reindex(labels, fill_value=0))
-    return section("What people complain about", caption, [chart(r, fig, INNER_W, 24 + 13 * len(labels))])
+    body = [chart(r, fig, INNER_W, 24 + 13 * len(labels))]
+    if rep.area is not None and rep.area.larger:  # the roll-up: what the single themes below can't show
+        body.append(Paragraph(markup(insights.area_line(rep.area)
+                                     + f" The biggest single theme has {rep.area.top_theme}."), S["small"]))
+    return section("What people complain about", caption, body)
 
 
 def matrix_section(rep: BrandReport, r: Renderer) -> KeepTogether:

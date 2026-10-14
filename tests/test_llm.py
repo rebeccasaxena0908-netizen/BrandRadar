@@ -463,6 +463,33 @@ def test_facts_come_from_the_dashboards_numbers(demo_factory: sessionmaker[Sessi
     assert briefing.build_facts(engine, brand_id(demo_factory, "DOMS"), date(2020, 1, 1), date(2020, 1, 7), "x") is None
 
 
+def test_briefing_facts_carry_the_complaint_roll_up_only_when_it_is_larger(demo_factory: sessionmaker[Session]) -> None:
+    facts = {"brand": "McDonald's", "industry": "food beverage", "period": "the last 7 days", "competitors": [],
+             "mentions": 248, "mentions_previous_period": 188, "mentions_change_percent": 32, "net_sentiment": -3,
+             "net_sentiment_change_points": -5, "top_emotion": "neutral", "biggest_win": None, "rising_topic": None,
+             "biggest_risk": {"topic": "Decreased Product Quality", "category": "taste", "priority": "Fix now",
+                              "complaints_last_7_days": 34, "complaints_7_days_before": 10, "times_last_week": 3.4,
+                              "pain": 0.17, "urgent": True},
+             "requests": {"label": "product request", "count": 4, "top_feature": None, "top_feature_count": None},
+             "largest_complaint_area": {"category": "App and ordering problems", "complaints": 72,
+                                        "complaints_before": 51, "themes": 8, "biggest_single_theme_complaints": 34},
+             "quotes": []}
+    lines = briefing.fact_lines(facts)
+    assert ("Largest complaint area: App and ordering problems, spread across 8 themes. Complaints in the last 7 days: "
+            "72, up from 51 in the 7 days before. The biggest single theme alone has 34.") in lines
+    assert "the largest complaint area" in briefing.system_prompt(facts)
+    # the numbers in the line are fair to repeat, and a briefing that invents another one is still rejected
+    ok = ("App and ordering problems are the largest complaint area, with 72 complaints across 8 themes, up from 51. "
+          "The biggest single theme is Decreased Product Quality with 34 complaints. Four of the product requests are "
+          "open. Net sentiment is -3.").replace("Four of", "4 of")
+    assert briefing.check_briefing(ok, facts) is None
+    assert briefing.check_briefing(ok.replace("72 complaints", "75 complaints"), facts) == "numbers not in the facts: 75"
+    without = {**facts, "largest_complaint_area": None}
+    assert "Largest complaint area" not in briefing.fact_lines(without)
+    assert "largest complaint area" not in briefing.system_prompt(without)
+    assert briefing.facts_hash(facts) != briefing.facts_hash(without)  # a new roll-up regenerates the briefing
+
+
 def test_briefing_must_only_contain_numbers_from_the_facts() -> None:
     facts = {"net_sentiment": 31, "change": -4, "win": {"own": 39, "rivals": 14}, "risk": {"topic": "Top 10 Bugs", "n": 4}}
     ok = ("Net sentiment is +31, down 4 points. The biggest win is integrations at +39 against +14 for competitors. "
