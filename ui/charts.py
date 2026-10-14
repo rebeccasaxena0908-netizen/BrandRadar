@@ -96,7 +96,10 @@ def matrix_figure(matrix: pd.DataFrame, texts: pd.DataFrame, volume_threshold: f
                 f"<b>{html.escape(t['label'])}</b><br>{html.escape(str(t['category'] or ''))} · {name}"
                 f"<br>{int(t['volume_7d'])} this week vs {int(t['volume_prev_7d'])} last week "
                 f"({insights.trend_text(int(t['volume_7d']), int(t['volume_prev_7d']))})"
-                f"<br>{int(t['mentions'])} mentions in total · pain {t['pain']:.2f}{quotes}"
+                f"<br>{int(t['mentions'])} mentions in total · pain {t['pain']:.2f}"
+                + (f"<br><span style='color:#6B5F62'>{html.escape(str(t['description']))}</span>"
+                   if isinstance(t.get("description"), str) and t["description"] else "")
+                + quotes
             )
         fig.add_trace(go.Scatter(
             # Ignore bubbles stay unlabelled (hover only): low-pain topics cluster and their labels collide

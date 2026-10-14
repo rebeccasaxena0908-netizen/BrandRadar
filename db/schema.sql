@@ -40,6 +40,11 @@ CREATE TABLE IF NOT EXISTS mentions (
   created_at   DATETIME        NOT NULL,
   fetched_at   DATETIME        NOT NULL DEFAULT CURRENT_TIMESTAMP,
   language     VARCHAR(16)     NULL,      -- 'en', 'hi', 'hinglish', 'ko', 'und'… (nlp/language.py)
+  -- translation of non-English mentions (Step 10); `text` always keeps the original
+  text_en            MEDIUMTEXT  NULL,
+  translation_status VARCHAR(16) NULL,      -- 'ok' / 'advert' (kept out of analysis) / 'failed'
+  translated_by      VARCHAR(64) NULL,      -- 'ollama:gemma3:4b' …  
+  translated_at      DATETIME    NULL,
   PRIMARY KEY (id),
   UNIQUE KEY uq_mentions_brand_source_external (brand_id, source, external_id),
   KEY ix_mentions_brand_created (brand_id, created_at),
@@ -64,6 +69,13 @@ CREATE TABLE IF NOT EXISTS topics (
   quadrant        VARCHAR(16)  NULL,
   scored_at       DATETIME     NULL,
   centroid        JSON         NULL,      -- mean member embedding; keeps topic ids on the same theme
+  -- labels (Step 10): `label` is what is shown; label_source says where it came from
+  label_source    VARCHAR(8)   NOT NULL DEFAULT 'keyword',  -- 'llm' / 'keyword' / 'manual'
+  description     VARCHAR(512) NULL,                        -- one sentence (LLM)
+  keyword_label   VARCHAR(255) NULL,                        -- rule-based label, the fallback
+  llm_label       VARCHAR(255) NULL,                        -- cached LLM label ...
+  llm_members     JSON         NULL,                        -- ... and the member ids it was written from
+  llm_at          DATETIME     NULL,
   PRIMARY KEY (id),
   KEY ix_topics_brand (brand_id),
   CONSTRAINT fk_topics_brand FOREIGN KEY (brand_id)
@@ -195,4 +207,44 @@ CREATE TABLE IF NOT EXISTS notifications (
   sent_at     DATETIME     NULL,
   PRIMARY KEY (id),
   UNIQUE KEY uq_notifications_kind_ref_channel (kind, ref, channel)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- Written briefings (Step 10): one per brand and period, grounded in the facts stored with it
+CREATE TABLE IF NOT EXISTS briefings (
+  id           INT UNSIGNED NOT NULL AUTO_INCREMENT,
+  brand_id     INT UNSIGNED NOT NULL,
+  period       VARCHAR(8)   NOT NULL,           -- 'last7' (dashboard) / 'week' (PDF, email)
+  period_label VARCHAR(16)  NOT NULL,           -- 'last7' or the ISO week '2026-W41'
+  start_date   DATE         NOT NULL,
+  end_date     DATE         NOT NULL,
+  text         TEXT         NOT NULL,
+  facts        JSON         NOT NULL,           -- exactly what the LLM was given
+  facts_hash   CHAR(64)     NOT NULL,           -- regenerate only when the facts change
+  provider     VARCHAR(16)  NOT NULL,
+  model        VARCHAR(64)  NOT NULL,
+  created_at   DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (id),
+  UNIQUE KEY uq_briefings_brand_period (brand_id, period, period_label),
+  CONSTRAINT fk_briefings_brand FOREIGN KEY (brand_id)
+    REFERENCES brands (id) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- One row per LLM stage run: time, items, fallbacks, tokens and cost (anthropic)
+CREATE TABLE IF NOT EXISTS llm_runs (
+  id            INT UNSIGNED NOT NULL AUTO_INCREMENT,
+  stage         VARCHAR(16)  NOT NULL,          -- 'translate' / 'labels' / 'briefings' / 'profile'
+  provider      VARCHAR(16)  NOT NULL,
+  model         VARCHAR(64)  NOT NULL,
+  started_at    DATETIME     NOT NULL,
+  seconds       FLOAT        NOT NULL DEFAULT 0,
+  items         INT UNSIGNED NOT NULL DEFAULT 0,  -- considered
+  generated     INT UNSIGNED NOT NULL DEFAULT 0,  -- new LLM results stored
+  cached        INT UNSIGNED NOT NULL DEFAULT 0,  -- still valid, not regenerated
+  fallbacks     INT UNSIGNED NOT NULL DEFAULT 0,  -- rule-based result kept (LLM off, failed or rejected)
+  input_tokens  INT UNSIGNED NOT NULL DEFAULT 0,
+  output_tokens INT UNSIGNED NOT NULL DEFAULT 0,
+  cost_usd      DECIMAL(10,6) NOT NULL DEFAULT 0,
+  error         VARCHAR(1024) NULL,
+  PRIMARY KEY (id),
+  KEY ix_llm_runs_started (started_at)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;

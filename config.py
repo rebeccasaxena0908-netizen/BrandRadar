@@ -79,6 +79,16 @@ class Settings:
     notify_weekly_hour: int
     notify_weekly_brands: tuple[str, ...]
     dashboard_url: str
+    llm_provider: str
+    llm_timeout: float
+    ollama_url: str
+    ollama_model: str
+    anthropic_api_key: str
+    anthropic_model: str
+    anthropic_price_input: float
+    anthropic_price_output: float
+    llm_label_refresh: float
+    llm_max_translations: int
 
     @property
     def database_url(self) -> str:
@@ -165,6 +175,18 @@ def load_settings() -> Settings:
         notify_weekly_hour=_get_int("NOTIFY_WEEKLY_HOUR", 8),
         notify_weekly_brands=_get_list("NOTIFY_WEEKLY_BRANDS", "own"),
         dashboard_url=os.getenv("DASHBOARD_URL", "http://localhost:8501").strip(),
+        # LLM insights (Step 10): none (rule-based, the default) / ollama (local) / anthropic (Claude API)
+        llm_provider=os.getenv("LLM_PROVIDER", "none").strip().lower() or "none",
+        llm_timeout=_get_float("LLM_TIMEOUT", 120.0),
+        ollama_url=os.getenv("OLLAMA_URL", "http://localhost:11434").strip().rstrip("/"),
+        ollama_model=os.getenv("OLLAMA_MODEL", "gemma3:4b").strip(),
+        anthropic_api_key=os.getenv("ANTHROPIC_API_KEY", "").strip(),
+        anthropic_model=os.getenv("ANTHROPIC_MODEL", "claude-haiku-5-5").strip(),
+        # USD per million tokens, for the cost in llm_runs (Claude Haiku 5.5 list price, prompts up to 100K)
+        anthropic_price_input=_get_float("ANTHROPIC_PRICE_INPUT", 0.10),
+        anthropic_price_output=_get_float("ANTHROPIC_PRICE_OUTPUT", 0.50),
+        llm_label_refresh=_get_float("LLM_LABEL_REFRESH", 0.2),
+        llm_max_translations=_get_int("LLM_MAX_TRANSLATIONS", 80),
     )
 
 

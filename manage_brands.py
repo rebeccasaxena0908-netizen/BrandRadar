@@ -342,8 +342,63 @@ def _ask_list(ask: Any, prompt: str, default: list[str] | None = None) -> list[s
     return [part.strip() for part in answer.split(",") if part.strip()]
 
 
-def add_brand(path: Path, ask: Any = input, say: Any = print) -> BrandEntry:
+def edit_in_editor(text: str) -> str:
+    """Open the text in $EDITOR (default: nano) and return what was saved."""
+    import os
+    import subprocess
+    import tempfile
+
+    with tempfile.NamedTemporaryFile("w+", suffix=".yaml", delete=False, encoding="utf-8") as f:
+        f.write(text)
+        name = f.name
+    try:
+        subprocess.run([*os.environ.get("EDITOR", "nano").split(), name], check=False)
+        return Path(name).read_text(encoding="utf-8")
+    finally:
+        Path(name).unlink(missing_ok=True)
+
+
+def choose_new_profile(industry: str, brand: str, ask: Any = input, say: Any = print, edit: Any = edit_in_editor,
+                       provider: Any = None) -> str:
+    """No profile fits `industry`: draft one with the LLM, show it for review, save it if accepted.
+    Without an LLM (or if the draft is rejected or unusable) the brand gets consumer_product."""
+    from nlp.llm.profile_draft import FALLBACK, draft_from_yaml, draft_profile, save_profile
+    from nlp.llm.provider import get_provider
+
+    provider = provider or get_provider()
+    if provider.name == "none":
+        say(f"  No profile matches {industry!r} and LLM_PROVIDER=none, so {brand} uses {FALLBACK}.")
+        return FALLBACK
+    say(f"  Drafting a profile for {industry!r} with {provider.name} ({provider.model})…")
+    draft = draft_profile(industry, brand, provider)
+    if draft is None:
+        say(f"  The LLM could not draft a usable profile, so {brand} uses {FALLBACK}.")
+        return FALLBACK
+    while True:
+        say("\n  Draft profile (review the categories, hypotheses and features):\n" + draft.to_yaml())
+        choice = ask("  [a]ccept and save to profiles.yaml / [e]dit / [r]eject (use consumer_product): ").strip().lower()[:1]
+        if choice == "a":
+            try:
+                save_profile(draft)
+            except ValueError as exc:
+                say(f"  Not saved: {exc}")
+                continue
+            say(f"  Saved profile {draft.name} to profiles.yaml.")
+            return draft.name
+        if choice == "e":
+            try:
+                draft = draft_from_yaml(edit(draft.to_yaml().replace("\n  ", "\n").lstrip()), industry)
+            except Exception as exc:  # noqa: BLE001 — show the problem and offer the draft again
+                say(f"  Could not read the edited profile: {exc}")
+            continue
+        if choice == "r":
+            say(f"  Rejected; {brand} uses {FALLBACK}.")
+            return FALLBACK
+
+
+def add_brand(path: Path, ask: Any = input, say: Any = print, edit: Any = None, provider: Any = None) -> BrandEntry:
     """Ask for a new brand, validate it together with the existing ones, then append it to brands.yaml."""
+    edit = edit or edit_in_editor
     from nlp.profiles import get_profile, profile_names
 
     entries = load_yaml(path)
@@ -364,11 +419,9 @@ def add_brand(path: Path, ask: Any = input, say: Any = print) -> BrandEntry:
         say(f"  {group} uses profile {profile}; {own.name} is its own brand, so {name} is a competitor.")
     else:
         say(f"  New group: {name} will be its own brand. Profiles: {', '.join(profile_names())}")
-        while True:
-            profile = ask("Profile [consumer_product]: ").strip() or "consumer_product"
-            if profile in profile_names():
-                break
-            say("  Pick one of the profiles listed above.")
+        say("  Or type the industry in your own words (e.g. 'pet food') to draft a new profile with the LLM.")
+        answer = ask("Profile or industry [consumer_product]: ").strip() or "consumer_product"
+        profile = answer if answer in profile_names() else choose_new_profile(answer, name, ask, say, edit, provider)
         is_own = True
 
     say("  Keywords: how people write the name. Capitals = case-sensitive whole word; lowercase = any case.")

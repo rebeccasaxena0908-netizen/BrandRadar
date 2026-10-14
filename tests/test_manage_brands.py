@@ -211,11 +211,13 @@ def test_add_competitor_to_an_existing_group(tmp_path: Path) -> None:
 
 
 def test_add_new_group_makes_the_own_brand_and_asks_for_a_profile(tmp_path: Path) -> None:
+    from nlp.llm.provider import NoneProvider
+
     path = write(tmp_path, GROUPS)
     entry = add_brand(path, answers(
-        "Laneige", "Skincare", "cars", "beauty_skincare",  # unknown profile: asked again
+        "Laneige", "Skincare", "beauty_skincare",
         "Laneige", "-", "", "", "Laneige lip mask, Laneige review", "youtube, news",
-    ), lambda s: None)
+    ), lambda s: None, provider=NoneProvider())
     assert entry.is_own and entry.profile == "beauty_skincare" and entry.sources == ["youtube", "news"]
     assert load_yaml(path)[-1].youtube_queries == ["Laneige lip mask", "Laneige review"]
 

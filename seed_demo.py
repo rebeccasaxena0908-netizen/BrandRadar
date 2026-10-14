@@ -500,8 +500,8 @@ def seed(engine: Engine, now: datetime | None = None, seed_value: int = 7) -> Se
             for theme in themes:
                 topic_id = None
                 if theme.label:
-                    topic = Topic(brand_id=brand.id, label=theme.label, category=theme.category,
-                                  keywords=[w.lower() for w in theme.label.split()])
+                    topic = Topic(brand_id=brand.id, label=theme.label, keyword_label=theme.label, label_source="keyword",
+                                  category=theme.category, keywords=[w.lower() for w in theme.label.split()])
                     session.add(topic)
                     session.flush()
                     topic_id = topic.id

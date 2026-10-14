@@ -354,7 +354,8 @@ def load_complaints(
     if profile.complaints_need_non_positive:
         aspect = aspect & (Analysis.sentiment != "positive")
     rows = session.execute(
-        select(Mention.id, Mention.text, Mention.created_at, Analysis.category, Analysis.topic_id)
+        select(Mention.id, func.coalesce(Mention.text_en, Mention.text), Mention.created_at, Analysis.category,
+               Analysis.topic_id)
         .join(Analysis, Analysis.mention_id == Mention.id)
         .where(
             Mention.brand_id == brand_id,
@@ -371,8 +372,12 @@ def save_brand(
     session: Session, brand_id: int, clusters: list[Cluster], overrides: dict[int, str] | None = None
 ) -> None:
     """Write topics + analysis.topic_id for one brand, then rebuild its topic_daily rows.
-    Manual labels from topic_labels.yaml win over generated ones."""
+    The shown label is the manual one (topic_labels.yaml) if there is one, else the topic's cached LLM
+    label (nlp/llm/labels.py refreshes it when the members change), else the keyword label, which is
+    always kept in keyword_label as the fallback."""
     overrides = overrides or {}
+    llm_labels = dict(session.execute(
+        select(Topic.id, Topic.llm_label).where(Topic.brand_id == brand_id, Topic.llm_label.is_not(None))).all())
     brand_mentions = select(Mention.id).where(Mention.brand_id == brand_id)
     session.execute(
         update(Analysis).where(Analysis.mention_id.in_(brand_mentions)).values(topic_id=None)
@@ -380,7 +385,9 @@ def save_brand(
     )
     for cluster in clusters:
         dates = [m.created_at for m in cluster.members]
-        values = {"label": cluster.label[:255], "category": cluster.category, "keywords": cluster.keywords,
+        keyword_label = cluster.label[:255]
+        values = {"label": keyword_label, "keyword_label": keyword_label, "label_source": "keyword",
+                  "category": cluster.category, "keywords": cluster.keywords,
                   "first_seen": min(dates), "last_seen": max(dates),
                   "centroid": None if cluster.centroid is None else [round(float(x), 5) for x in cluster.centroid]}
         if cluster.topic_id is None:
@@ -388,12 +395,12 @@ def save_brand(
             session.add(topic)
             session.flush()
             cluster.topic_id = topic.id
-            if topic.id in overrides:
-                cluster.label = topic.label = overrides[topic.id][:255]
-        else:
-            if cluster.topic_id in overrides:
-                cluster.label = values["label"] = overrides[cluster.topic_id][:255]
-            session.execute(update(Topic).where(Topic.id == cluster.topic_id).values(**values))
+        if cluster.topic_id in overrides:
+            values.update(label=overrides[cluster.topic_id][:255], label_source="manual")
+        elif cluster.topic_id in llm_labels:
+            values.update(label=llm_labels[cluster.topic_id], label_source="llm")
+        cluster.label = values["label"]
+        session.execute(update(Topic).where(Topic.id == cluster.topic_id).values(**values))
         session.execute(
             update(Analysis).where(Analysis.mention_id.in_([m.mention_id for m in cluster.members]))
             .values(topic_id=cluster.topic_id).execution_options(synchronize_session=False)

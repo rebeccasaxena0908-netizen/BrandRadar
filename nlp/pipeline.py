@@ -260,7 +260,8 @@ def redetect_languages(session: Session, brands: list[int] | None = None) -> tup
 
 def select_pending(session: Session, brands: list[int] | None, limit: int | None) -> list[PendingMention]:
     stmt = (
-        select(Mention.id, Mention.brand_id, Mention.text, Brand.profile, Mention.language)
+        select(Mention.id, Mention.brand_id, Mention.text, Brand.profile, Mention.language, Mention.text_en,
+               Mention.translation_status)
         .join(Brand, Brand.id == Mention.brand_id)
         .outerjoin(Analysis, Analysis.mention_id == Mention.id)
         .where(Analysis.mention_id.is_(None))
@@ -270,8 +271,13 @@ def select_pending(session: Session, brands: list[int] | None, limit: int | None
         stmt = stmt.where(Mention.brand_id.in_(brands))
     if limit:
         stmt = stmt.limit(limit)
-    return [PendingMention(i, b, clean_text(t), p or SOFTWARE, lang if lang else detect_language(t))
-            for i, b, t, p, lang in session.execute(stmt)]
+    pending: list[PendingMention] = []
+    for i, b, t, p, lang, text_en, status in session.execute(stmt):
+        if status == "ok" and text_en:  # translated by the LLM (nlp/llm/translate.py): analyse the English text
+            pending.append(PendingMention(i, b, clean_text(text_en), p or SOFTWARE, "en"))
+        else:
+            pending.append(PendingMention(i, b, clean_text(t), p or SOFTWARE, lang if lang else detect_language(t)))
+    return pending
 
 
 def load_features(session: Session) -> dict[int, Features]:

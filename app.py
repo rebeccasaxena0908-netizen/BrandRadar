@@ -14,6 +14,7 @@ import streamlit as st
 
 from config import settings
 from nlp.models import EMOTIONS
+from nlp.language import language_name
 from nlp.profiles import SOFTWARE, get_profile
 from reports.export import csv_name, mentions_csv, slug
 from reports.weeks import Week
@@ -284,7 +285,9 @@ def ranked_topics(matrix: pd.DataFrame) -> None:
         rows = "".join(
             f'<li><span class="br-rank-dot" style="background:{charts.QUADRANT_COLOURS[r["quadrant"]]}"></span>'
             f'<span class="br-rank-label">{html.escape(r["label"])}</span>'
-            f'<span class="br-rank-meta">{r["quadrant"]} · {int(r["volume_7d"])} this week · pain {r["pain"]:.2f}</span></li>'
+            f'<span class="br-rank-meta">{r["quadrant"]} · {int(r["volume_7d"])} this week · pain {r["pain"]:.2f}</span>'
+            + (f'<span class="br-rank-desc">{html.escape(str(r["description"]))}</span>'
+               if isinstance(r.get("description"), str) and r["description"] else "") + '</li>'
             for _, r in urgent.iterrows()
         )
         st.markdown(f'<ol class="br-rank">{rows}</ol>', unsafe_allow_html=True)
@@ -356,12 +359,23 @@ def executive_summary(brand: pd.Series, comps: list[pd.Series], matrix: pd.DataF
     summary = insights.summary_picks(brand["name"], matrix, table, int(brand["id"]), [int(c["id"]) for c in comps],
                                      current, k.net_sentiment, k.net_sentiment_change, days,
                                      get_profile(brand["profile"]).request)
+    written = data.briefing(int(brand["id"]))  # LLM briefing (nlp/llm/briefing.py), if the collector wrote one
+    if written and written["end_date"] < date.today() - timedelta(days=1):
+        written = None  # stale (collector stopped): the rule-based lines follow the filters instead
     with glass_card("summary"):
-        section_title("Executive summary", f"{brand['name']} this period, in 20 seconds · built from the numbers above")
-        lines = [("risk", summary.risk), ("win", summary.win), ("request", summary.request), ("change", summary.change)]
-        st.markdown('<ul class="br-summary">' + "".join(
-            f'<li class="br-summary-{kind}"><span class="br-summary-mark"></span><span>{line}</span></li>'
-            for kind, line in lines) + "</ul>", unsafe_allow_html=True)
+        if written:
+            section_title("Executive summary", f"{brand['name']}, last 7 days · written from the numbers and quotes")
+            st.markdown(
+                f'<p class="br-briefing">{html.escape(written["text"])}</p>'
+                f'<div class="br-ai-tag"><span class="br-ai-pill">AI-written</span> {written["start_date"]:%d %b} – '
+                f'{written["end_date"]:%d %b} · {html.escape(written["model"])} · every number checked against the data</div>',
+                unsafe_allow_html=True)
+        else:
+            section_title("Executive summary", f"{brand['name']} this period, in 20 seconds · built from the numbers above")
+            lines = [("risk", summary.risk), ("win", summary.win), ("request", summary.request), ("change", summary.change)]
+            st.markdown('<ul class="br-summary">' + "".join(
+                f'<li class="br-summary-{kind}"><span class="br-summary-mark"></span><span>{line}</span></li>'
+                for kind, line in lines) + "</ul>", unsafe_allow_html=True)
         quotes = insights.pick_quotes(own)
         if not quotes:
             return
@@ -371,9 +385,13 @@ def executive_summary(brand: pd.Series, comps: list[pd.Series], matrix: pd.DataF
                 continue
             q = quotes[sentiment]
             meta = f'{data.SOURCES.get(q["source"], q["source"])} {stars(q["rating"])} · {pd.Timestamp(q["created_at"]):%d %b}'
+            original = ""
+            if isinstance(q.get("original"), str) and q["original"].strip():  # translated by the LLM (Step 10)
+                original = (f'<div class="br-quote-original"><span>Translated from {html.escape(language_name(q.get("language")))}'
+                            f'</span> · {html.escape(" ".join(q["original"].split())[:240])}</div>')
             cards.append(
                 f'<figure class="br-quote br-quote-{sentiment}"><blockquote>“{html.escape(" ".join(q["text"].split()))}”</blockquote>'
-                f'<figcaption><span class="br-quote-tag">{sentiment}</span> {meta}</figcaption></figure>'
+                f'{original}<figcaption><span class="br-quote-tag">{sentiment}</span> {meta}</figcaption></figure>'
             )
         st.markdown(f'<div class="br-label br-quotes-head">What people are saying</div><div class="br-quotes">{"".join(cards)}</div>',
                     unsafe_allow_html=True)

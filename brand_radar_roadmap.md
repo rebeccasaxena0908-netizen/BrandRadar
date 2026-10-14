@@ -181,7 +181,7 @@ Main packages: `streamlit`, `plotly`, `wordcloud`, `sqlalchemy`, `pymysql`, `pyt
 | 7 | Collector scheduler + live-refreshing fragments; demo seed data | Done |
 | 8 | Optional Reddit source (only if you have approved access); free social sources: Mastodon, dev.to | Done |
 | 9 | Export: PDF/CSV weekly report, email or Slack alert | Done |
-| 10 | Optional: LLM-written executive summary, multi-language reviews | |
+| 10 | Optional: LLM-written executive summary, multi-language reviews (AI topic labels, grounded weekly briefings, translation, profile drafts; Ollama or Claude) | Done |
 
 ---
 

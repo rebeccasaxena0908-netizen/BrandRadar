@@ -127,6 +127,10 @@ class Stages:
     priority: Callable[[], int]
     notify: Callable[[], NotifyOutcome] | None = None
     weekly: Callable[[], NotifyOutcome] | None = None
+    # Step 10 (optional, LLM_PROVIDER): translate() returns how many mentions it translated; the cycle then
+    # re-runs nlp for them. insights() writes LLM labels and briefings after priority.
+    translate: Callable[[], NotifyOutcome] | None = None
+    insights: Callable[[], NotifyOutcome] | None = None
 
 
 def fetch_since(factory: sessionmaker[Session], now: datetime, pairs: list[tuple[str, int]] | None = None) -> datetime:
@@ -176,6 +180,9 @@ def real_stages(factory: sessionmaker[Session]) -> Stages:
         return len(alerts)
 
     def notify() -> NotifyOutcome:
+        from reports import quiet_streamlit
+
+        quiet_streamlit()  # ui.data is imported outside Streamlit here (and warns at import time)
         from db.session import get_engine
         from reports.notify import after_cycle
 
@@ -183,14 +190,45 @@ def real_stages(factory: sessionmaker[Session]) -> Stages:
         return NotifyOutcome(out.summary, out.errors)
 
     def weekly() -> NotifyOutcome:
+        from reports import quiet_streamlit
+
+        quiet_streamlit()  # ui.data is imported outside Streamlit here (and warns at import time)
         from db.session import get_engine
         from reports.notify import send_weekly
 
         out = send_weekly(get_engine())
         return NotifyOutcome(out.summary, out.errors)
 
+    def translate() -> NotifyOutcome:
+        from nlp.llm.provider import get_provider
+        from nlp.llm.translate import translate_pending
+
+        out = translate_pending(factory, get_provider())
+        run = out.run
+        assert run is not None
+        per_brand = ", ".join(f"{b} {n}" for b, n in sorted(out.translated.items()))
+        summary = run.summary + (f" · translated: {per_brand}" if per_brand else "")
+        errors = [e for e in run.errors if "LLM_PROVIDER=none" not in e]
+        return NotifyOutcome(summary, errors if run.fallbacks and not run.generated else [])
+
+    def insights() -> NotifyOutcome:
+        from reports import quiet_streamlit
+
+        quiet_streamlit()  # ui.data is imported outside Streamlit here (and warns at import time)
+        from nlp.llm.briefing import refresh_briefings
+        from nlp.llm.labels import refresh_labels
+        from nlp.llm.provider import get_provider
+
+        provider = get_provider()
+        labels, briefings = refresh_labels(factory, provider), refresh_briefings(factory, provider)
+        # rejected outputs fall back quietly; an unreachable LLM is worth a "partial" cycle
+        down = [e for run in (labels, briefings) for e in run.errors if "reachable" in e or "API_KEY" in e]
+        return NotifyOutcome(f"{labels.summary}; {briefings.summary}", list(dict.fromkeys(down)))
+
+    llm_on = settings.llm_provider not in ("", "none")
     return Stages(fetch=fetch, pending=pending, nlp=lambda: run_in_child(_child_nlp),
-                  topics=lambda: run_in_child(_child_topics), priority=priority, notify=notify, weekly=weekly)
+                  topics=lambda: run_in_child(_child_topics), priority=priority, notify=notify, weekly=weekly,
+                  translate=translate if llm_on else None, insights=insights if llm_on else None)
 
 
 # --- heavy stages: these run in a spawned child process (see module docstring)
@@ -364,14 +402,37 @@ def run_cycle(factory: sessionmaker[Session], stages: Stages, now: datetime | No
         result.alerts_created = stages.priority()
         return f"{result.alerts_created} new alert(s)"
 
+    def do_translate() -> str:
+        # runs after the NLP child has exited (the LLM and the NLP models never share the 8 GB together)
+        assert stages.translate is not None
+        out = stages.translate()
+        result.errors += [f"translate: {e}" for e in out.errors]
+        waiting = stages.pending()  # translations dropped their NULL analysis rows
+        if not waiting:
+            return out.summary
+        again = stages.nlp()
+        result.analysed += again.analysed
+        result.analysis_failed += again.failed
+        return f"{out.summary}; {again.analysed} translation(s) analysed"
+
+    def do_insights() -> str:
+        assert stages.insights is not None
+        out = stages.insights()
+        result.errors += [f"insights: {e}" for e in out.errors]
+        return out.summary
+
     def do_notify() -> str:
         assert stages.notify is not None
         out = stages.notify()
         result.errors += [f"notify: {e}" for e in out.errors]
         return out.summary
 
-    steps: list[tuple[str, Callable[[], str]]] = [
-        ("fetch", do_fetch), ("nlp", do_nlp), ("topics", do_topics), ("priority", do_priority)]
+    steps: list[tuple[str, Callable[[], str]]] = [("fetch", do_fetch), ("nlp", do_nlp)]
+    if stages.translate is not None:
+        steps.append(("translate", do_translate))
+    steps += [("topics", do_topics), ("priority", do_priority)]
+    if stages.insights is not None:
+        steps.append(("insights", do_insights))
     if stages.notify is not None:
         steps.append(("notify", do_notify))
     interrupted = False
@@ -393,7 +454,7 @@ def run_cycle(factory: sessionmaker[Session], stages: Stages, now: datetime | No
         log.info("cycle    INTERRUPTED after %.0fs", result.seconds)
         return result
 
-    if len([s for s in failed_stages if s != "notify"]) == 4:  # every data stage failed
+    if len([s for s in failed_stages if s in ("fetch", "nlp", "topics", "priority")]) == 4:  # every data stage failed
         result.status = "failed"
     elif result.errors:
         result.status = "partial"

@@ -39,6 +39,10 @@ It works for any industry. Out of the box it tracks three brand groups, each wit
   mentions, both downloadable from the dashboard.
 - **Notifications** (optional): new spike alerts by email and/or Slack after each collector cycle, and the
   weekly PDF every Monday morning.
+- **AI insights** (optional, Step 10): a local LLM (Ollama, `gemma3:4b`) or Claude Haiku writes topic labels
+  with a one-line description, a weekly briefing per brand checked against the numbers, and English
+  translations of Hindi, Bengali, Hinglish, Vietnamese and other mentions so they get analysed too. It
+  falls back to the rule-based labels and summary per item, and the dashboard never calls the LLM.
 - **Demo mode** with a separate, fictional dataset, so the dashboard can be shown without real data.
 
 ## Tech stack
@@ -52,6 +56,7 @@ It works for any industry. Out of the box it tracks three brand groups, each wit
 | NLP | PyTorch, Hugging Face Transformers, sentence-transformers, BERTopic (UMAP + HDBSCAN) |
 | Scheduling | APScheduler |
 | Dashboard | Streamlit, Plotly, `wordcloud` |
+| AI insights (optional) | Ollama (`gemma3:4b`, local, JSON-schema output) or the Anthropic SDK (Claude Haiku) |
 | Reports | ReportLab (PDF, fonts embedded), kaleido 1.x (Plotly charts drawn by the installed Google Chrome), `smtplib`, Slack incoming webhooks |
 | Tests | pytest with mocked HTTP and models (no downloads), Streamlit AppTest, Playwright screenshots |
 
@@ -63,11 +68,11 @@ It works for any industry. Out of the box it tracks three brand groups, each wit
  Hacker News  ──┐   1 fetch      new mentions since the last success, deduped ──►  mentions, fetch_runs
  App Store    ──┤
  Google Play  ──┼─► 2 NLP*       sentiment · emotion · category · feature    ──►  analysis              Streamlit
- Mastodon     ──┤   3 topics*    BERTopic per brand on complaints**          ──►  topics, topic_daily ──► reads only,
- dev.to       ──┤   4 priority   volume × pain, quadrants, spike alerts      ──►  topics, alerts        cached 60 s
- YouTube      ──┤                cycle record                                ──►  collector_runs
- News (GDELT) ──┤
- Reddit (opt) ──┤
+ Mastodon     ──┤   3 translate  non-English -> English (optional LLM)       ──►  mentions.text_en
+ dev.to       ──┤   4 topics*    BERTopic per brand on complaints**          ──►  topics, topic_daily ──► reads only,
+ YouTube      ──┤   5 priority   volume × pain, quadrants, spike alerts      ──►  topics, alerts        cached 60 s
+ News (GDELT) ──┤   6 insights   LLM labels + briefings (optional)           ──►  topics, briefings
+ Reddit (opt) ──┤                cycle record, LLM timings                   ──►  collector_runs, llm_runs
  CSV import   ──┘
                     * runs in a short-lived child process, so the models' memory is freed after each cycle
                     ** dev.to and news are left out of complaint topics, the matrix and alerts (TOPIC_EXCLUDED_SOURCES)
@@ -233,6 +238,52 @@ Any other SMTP server works the same way (port 587 uses STARTTLS, port 465 uses 
 
 Restart the collector after changing `.env`.
 
+## AI insights (optional)
+
+Off by default (`LLM_PROVIDER=none`): the dashboard then shows the keyword topic labels and the rule-based
+executive summary, exactly as before. With an LLM switched on, the collector adds two stages after the NLP
+models have exited, so the LLM never shares memory with them:
+
+| Stage | What it writes | When it regenerates |
+|---|---|---|
+| **translate** (after NLP) | `mentions.text_en`: English for non-English and Hinglish mentions; the original stays in `text`. The translated text then goes through sentiment, emotion, category and topics. Adverts ("order here 👉") are flagged and left out. | Once per mention (`--redo` to re-translate) |
+| **labels** (after topics) | A 2–4 word label and a one-sentence description per topic, written from 8–10 of its mentions in the industry's words. `topics.label_source` records `llm`, `keyword` or `manual`; `topic_labels.yaml` always wins. | When a topic's members changed by `LLM_LABEL_REFRESH` (20%) or more |
+| **briefings** | 3–5 sentences per brand: biggest risk, biggest win against the competitors, top request, a notable change, each only when the facts have one; thin brands get volume, sentiment and quotes instead (`briefings` table). The dashboard's summary card and the weekly PDF show it with an **AI-written** tag. | `last7` when its facts change; each ISO week once |
+
+**Grounding.** The briefing is written only from a fact sheet built by the same code as the rule-based summary
+(`ui/insights.py`). Every number in it must appear in the facts with the same sign, numbers must be digits,
+and it must be 3–6 plain sentences. A briefing that fails gets one retry with the reason; if that fails too,
+the dashboard keeps the rule-based summary. Labels, descriptions and translations have similar checks
+(word count, no brand name, no duplicate label, a translation that isn't just the original). Any failure,
+timeout or unreachable LLM falls back for that item only, and the cycle carries on.
+
+**Providers** (`.env`):
+
+```ini
+LLM_PROVIDER=ollama          # none (default) | ollama | anthropic
+OLLAMA_MODEL=gemma3:4b       # brew install ollama && brew services start ollama && ollama pull gemma3:4b
+ANTHROPIC_API_KEY=sk-ant-…   # only for LLM_PROVIDER=anthropic (claude-haiku-5-5)
+```
+
+`gemma3:4b` needs Ollama 0.6 or newer and about 2.8 GB while it runs. It is unloaded (`keep_alive=0`) at the
+end of each stage. On the real data it translated all 12 test mentions in Bengali, Vietnamese, Hinglish, Urdu,
+Chinese, Japanese and Spanish correctly; the lighter `qwen2.5:3b` garbled Bengali and mistook a complaint about ads for an advert.
+Every LLM stage is logged in `llm_runs` (seconds, items, generated, cached, fallbacks; tokens and cost in
+USD for Anthropic), and `python check_setup.py` shows the last runs and translated counts per brand.
+
+```bash
+python -m nlp.llm --check                         # is the provider reachable?
+python -m nlp.llm --translate                     # then: python -m nlp.pipeline && python -m nlp.topics
+python -m nlp.llm --labels --briefings [--brand X] [--force]
+BRAND_RADAR_DEMO=1 python -m nlp.llm --labels --briefings
+```
+
+![AI-written briefing and topic descriptions on the dashboard](docs/screenshots/step10-desktop.png)
+
+**New industries.** When `manage_brands.py add` gets a profile name that doesn't exist, the LLM drafts one
+(categories, complaints, praise, requests, features, sources) and shows it for you to accept, edit or reject
+before it is written to `profiles.yaml`. Without an LLM the brand uses `consumer_product`.
+
 ## Tracking another industry
 
 Each brand belongs to a **group** (one own brand plus competitors) and every group uses one **profile** from
@@ -331,8 +382,11 @@ Models: `cardiffnlp/twitter-roberta-base-sentiment-latest`, `j-hartmann/emotion-
 
 ## Known limitations
 
-- **English only.** Non-English mentions are detected and stored without labels (counted per brand in
-  `check_setup.py`). Short Latin-script texts (under 8 words) count as English unless the detector is at
+- **English analysis.** Without an LLM, non-English mentions are stored without labels (counted per brand
+  in `check_setup.py`); with one, they are translated first (at most `LLM_MAX_TRANSLATIONS`, 80, per cycle).
+  A 4B model still slips now and then (Bengali "oily face" came out as "Wave Face", "Cosrx" as "Cozera X"),
+  and very short romanised Hindi or Bengali is rejected as low-confidence rather than analysed. The
+  dashboard always shows the original next to the translation. Short Latin-script texts (under 8 words) count as English unless the detector is at
   least 95% sure of another language, so short English comments are no longer skipped as Dutch or German.
   The cost: short romanised Hindi or Bengali without enough Hindi words is analysed as English.
 - **Physical-product groups are thin** without CSV imports (see [Tracking another industry](#tracking-another-industry)).
@@ -343,7 +397,10 @@ Models: `cardiffnlp/twitter-roberta-base-sentiment-latest`, `j-hartmann/emotion-
 - **Few free social sources.** Evernote and ClickUp get almost nothing from Mastodon and dev.to; Reddit
   (optional, closing in 2027) was the main social source for them.
 - **One feature per mention.** A review about sync *and* pricing gets one feature; about 15% of mentions name several.
-- **Keyword-based topic labels.** Some are clunky; fix them in `topic_labels.yaml` (labels written by an LLM are a planned extra).
+- **Topic labels.** Without an LLM they are keyword-based and some are clunky; fix them in `topic_labels.yaml`.
+  LLM labels are better but can still generalise; manual labels always win.
+- **AI briefings are short and literal.** They only restate the fact sheet, so they don't explain causes
+  beyond the quotes. A local 4B model takes about 10 s per briefing and ~5 s per label on an 8 GB M2.
 - **Some praise lands in the complaint set** (positive reviews the model put in a complaint category). These
   topics score zero pain, so the matrix hides them by default.
 - **The emotion model is weak on single reviews.** The dashboard only shows emotion in aggregate.
@@ -353,16 +410,17 @@ Models: `cardiffnlp/twitter-roberta-base-sentiment-latest`, `j-hartmann/emotion-
 ## Project layout
 
 ```
-app.py              Streamlit dashboard          collector.py     scheduled fetch -> NLP -> topics -> priority
+app.py              Streamlit dashboard          collector.py     fetch -> NLP -> translate -> topics -> priority -> AI
 fetch.py            fetch runner + CSV import    seed_demo.py     demo database
 manage_brands.py    brands.yaml -> brands, add,  check_setup.py   environment / database / model checks
                     dry-run, recheck-mentions
 config.py           settings from .env           scripts/start.sh collector + dashboard together
 brands.yaml         brands and groups            profiles.yaml    industry profiles (categories, sources)
-db/                 schema.sql, models, session
+db/                 schema.sql, migrations/, models, session
 sources/            hackernews, appstore, playstore, youtube, news, mastodon, devto, reddit, csv_import,
                     shared HTTP + matching
-nlp/                pipeline (models, text, features, language, profiles), topics, priority
+nlp/                pipeline (models, text, features, language, profiles), topics, priority,
+                    llm/ (providers, translate, labels, briefing, profile drafts, run log)
 ui/                 styles.css (approved theme), streamlit.css, components, data, insights, charts, fonts/
 reports/            weekly (PDF), render (charts via Chrome), export (CSV), notify (email, Slack), weeks
 tests/              pytest suite (mocked HTTP and models)

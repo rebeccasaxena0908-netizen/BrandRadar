@@ -54,6 +54,7 @@ python tools/screenshot.py --group Stationery --name industry-stationery     # a
 python tools/screenshot.py --reduced-motion ...                               # still background, for diffing
 python -m reports.weekly [--brand X | --group G] [--week 2026-W41]  # weekly PDF -> reports/output/
 python -m reports.notify --test | --alerts | --weekly               # email / Slack (optional)
+python -m nlp.llm --check | --translate [--redo] | --labels --briefings [--brand X] [--force]  # AI (optional)
 ```
 
 ## Layout notes
@@ -101,6 +102,19 @@ python -m reports.notify --test | --alerts | --weekly               # email / Sl
   ISO Monday-Sunday in UTC dates (`reports/weeks.py`). Notifications (`reports/notify.py`) claim a
   `notifications` row before sending (at most once per kind/ref/channel); the collector's optional
   `notify` stage sends alerts, its Monday 08:00 Asia/Kolkata job sends the weekly report; demo never sends.
+- AI insights (Step 10, `nlp/llm/`): `LLM_PROVIDER` none (default) | ollama (gemma3:4b; qwen2.5:3b garbles
+  Bengali) | anthropic (Haiku). Providers: `json()` (schema; Ollama retries broken JSON once) for labels,
+  translations and profiles, `text()` for briefings (gemma degenerates into number lists inside long JSON
+  strings). Every stage falls back per item and logs an `llm_runs` row. The dashboard only reads `briefings` / `topics.description`; it never calls the LLM.
+  Collector order: NLP child -> translate (+ NLP again for translated) -> topics child -> priority -> labels +
+  briefings; Ollama is unloaded (keep_alive 0) after each stage. Translation fills `mentions.text_en`
+  (`translation_status` ok/advert/failed); analysis, topics and quotes use the English text when ok.
+  Label priority manual > llm > keyword (`label_source`); LLM labels regenerate when members move by
+  LLM_LABEL_REFRESH (Jaccard). Briefings are grounded: every number must be in the facts with its sign
+  (`check_briefing`), one retry, else the rule-based summary. Empty slots go in a "Nothing to report"
+  line, never as "risk: none" (small models garble those). `last7` regenerates on a new `facts_hash`,
+  `week` is written once. Tests force NoneProvider (conftest) and mock the LLM; never call a real one.
+  Schema changes for an existing DB go in `db/migrations/` (`010_llm.sql`).
 - Demo data (`seed_demo.py` THEMES) covers all three groups with each profile's categories/features;
   `tests/test_demo_and_status.py` checks every brand is full and every own brand has an alert.
 - Demo data lives in `brand_radar_demo` (`BRAND_RADAR_DEMO=1` switches `config`); never write demo data

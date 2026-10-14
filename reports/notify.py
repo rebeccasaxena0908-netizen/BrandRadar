@@ -311,11 +311,16 @@ def weekly_message(reports: Sequence[tuple[Any, Path]], week: Any, email_on: boo
     subject = f"Brand Radar weekly report · {week.label} ({week.span})"
     text_lines, html_items, slack_lines = [], [], []
     for rep, path in reports:
-        text_lines.append(f"{rep.name} [{rep.brand['brand_group']}]: {net(rep)}\n  {strip(rep.summary.risk)}\n  PDF: {path.name}")
+        # the AI-written briefing for the week when there is one (Step 10), else the rule-based risk line
+        lead = rep.briefing["text"] if rep.briefing else strip(rep.summary.risk)
+        text_lines.append(f"{rep.name} [{rep.brand['brand_group']}]: {net(rep)}\n  {lead}\n  PDF: {path.name}")
         html_items.append(f'<li style="margin:0 0 12px"><b>{html.escape(rep.name)}</b> '
                           f'<span style="color:#9C9899">{html.escape(str(rep.brand["brand_group"]))}</span><br>'
-                          f'{html.escape(net(rep))}<br><span style="color:#6B5F62">{rep.summary.risk}</span></li>')
-        slack_lines.append(f"• *{rep.name}* ({rep.brand['brand_group']}): {net(rep)}\n   {strip(rep.summary.risk)}")
+                          f'{html.escape(net(rep))}<br><span style="color:#6B5F62">'
+                          + (html.escape(rep.briefing["text"]) + " <i>(AI-written)</i>" if rep.briefing else rep.summary.risk)
+                          + "</span></li>")
+        slack_lines.append(f"• *{rep.name}* ({rep.brand['brand_group']}): {net(rep)}\n   "
+                           + (f"{rep.briefing['text']} _(AI-written)_" if rep.briefing else strip(rep.summary.risk)))
     where = "The PDF reports are attached." if email_on else ""
     slack_where = ("PDF reports sent by email." if email_on
                    else "PDF reports are saved in reports/output on the collector machine.")

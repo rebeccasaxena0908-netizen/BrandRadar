@@ -15,6 +15,7 @@ from sqlalchemy import (
     ForeignKey,
     Index,
     Integer,
+    Numeric,
     SmallInteger,
     String,
     Text,
@@ -79,6 +80,11 @@ class Mention(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime)
     fetched_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
     language: Mapped[Optional[str]] = mapped_column(String(16))  # nlp/language.py; only en/und are analysed
+    # Step 10: LLM translation of non-English mentions (`text` keeps the original)
+    text_en: Mapped[Optional[str]] = mapped_column(Text().with_variant(MEDIUMTEXT(), "mysql"))
+    translation_status: Mapped[Optional[str]] = mapped_column(String(16))  # ok / advert / failed
+    translated_by: Mapped[Optional[str]] = mapped_column(String(64))
+    translated_at: Mapped[Optional[datetime]] = mapped_column(DateTime)
 
     brand: Mapped[Brand] = relationship(back_populates="mentions")
     analysis: Mapped[Optional[Analysis]] = relationship(back_populates="mention", passive_deletes=True)
@@ -106,6 +112,13 @@ class Topic(Base):
     quadrant: Mapped[Optional[str]] = mapped_column(String(16))
     scored_at: Mapped[Optional[datetime]] = mapped_column(DateTime)
     centroid: Mapped[Optional[list[float]]] = mapped_column(JSON)  # mean member embedding (see nlp/topics.py)
+    # Step 10: `label` is shown; it is the manual, LLM or keyword label (label_source says which)
+    label_source: Mapped[str] = mapped_column(String(8), default="keyword", server_default="keyword")
+    description: Mapped[Optional[str]] = mapped_column(String(512))
+    keyword_label: Mapped[Optional[str]] = mapped_column(String(255))
+    llm_label: Mapped[Optional[str]] = mapped_column(String(255))
+    llm_members: Mapped[Optional[list[int]]] = mapped_column(JSON)  # member ids the LLM label was written from
+    llm_at: Mapped[Optional[datetime]] = mapped_column(DateTime)
 
     brand: Mapped[Brand] = relationship(back_populates="topics")
     daily: Mapped[list[TopicDaily]] = relationship(back_populates="topic", passive_deletes=True)
@@ -249,6 +262,48 @@ class Notification(Base):
     error: Mapped[Optional[str]] = mapped_column(String(1024))
     created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
     sent_at: Mapped[Optional[datetime]] = mapped_column(DateTime)
+
+
+class Briefing(Base):
+    """A written briefing per brand and period (LLM), with the facts it was grounded in."""
+
+    __tablename__ = "briefings"
+    __table_args__ = (UniqueConstraint("brand_id", "period", "period_label", name="uq_briefings_brand_period"),)
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    brand_id: Mapped[int] = mapped_column(ForeignKey("brands.id", ondelete="CASCADE"))
+    period: Mapped[str] = mapped_column(String(8))  # last7 / week
+    period_label: Mapped[str] = mapped_column(String(16))
+    start_date: Mapped[date] = mapped_column(Date)
+    end_date: Mapped[date] = mapped_column(Date)
+    text: Mapped[str] = mapped_column(Text)
+    facts: Mapped[dict[str, Any]] = mapped_column(JSON)
+    facts_hash: Mapped[str] = mapped_column(String(64))
+    provider: Mapped[str] = mapped_column(String(16))
+    model: Mapped[str] = mapped_column(String(64))
+    created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
+
+
+class LlmRun(Base):
+    """One LLM stage run: timing, items, fallbacks, tokens and cost."""
+
+    __tablename__ = "llm_runs"
+    __table_args__ = (Index("ix_llm_runs_started", "started_at"),)
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    stage: Mapped[str] = mapped_column(String(16))
+    provider: Mapped[str] = mapped_column(String(16))
+    model: Mapped[str] = mapped_column(String(64))
+    started_at: Mapped[datetime] = mapped_column(DateTime)
+    seconds: Mapped[float] = mapped_column(Float, default=0.0)
+    items: Mapped[int] = mapped_column(Integer, default=0)
+    generated: Mapped[int] = mapped_column(Integer, default=0)
+    cached: Mapped[int] = mapped_column(Integer, default=0)
+    fallbacks: Mapped[int] = mapped_column(Integer, default=0)
+    input_tokens: Mapped[int] = mapped_column(Integer, default=0)
+    output_tokens: Mapped[int] = mapped_column(Integer, default=0)
+    cost_usd: Mapped[float] = mapped_column(Numeric(10, 6), default=0)
+    error: Mapped[Optional[str]] = mapped_column(String(1024))
 
 
 TABLE_NAMES: tuple[str, ...] = tuple(Base.metadata.tables.keys())

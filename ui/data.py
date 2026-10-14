@@ -48,12 +48,14 @@ def query_mentions(
 ) -> pd.DataFrame:
     """Analysed mentions for the brands/sources with created_at in [start, end] (whole days)."""
     columns = ["brand_id", "created_at", "source", "text", "rating", "sentiment", "sentiment_score",
-               "emotion_scores", "category", "feature", "topic_id"]
+               "emotion_scores", "category", "feature", "topic_id", "original", "language"]
     if not brand_ids or not sources:
         return pd.DataFrame(columns=columns)
     stmt = text(
-        "SELECT m.brand_id, m.created_at, m.source, m.text, m.rating, a.sentiment, a.sentiment_score, "
-        "a.emotion_scores, a.category, a.feature, a.topic_id "
+        # translated mentions (Step 10) are analysed and shown in English; the original stays alongside
+        "SELECT m.brand_id, m.created_at, m.source, COALESCE(m.text_en, m.text) AS text, m.rating, a.sentiment, "
+        "a.sentiment_score, a.emotion_scores, a.category, a.feature, a.topic_id, "
+        "CASE WHEN m.text_en IS NOT NULL THEN m.text END AS original, m.language "
         "FROM mentions m JOIN analysis a ON a.mention_id = m.id "
         "WHERE m.brand_id IN :brands AND m.source IN :sources "
         "AND m.created_at >= :start AND m.created_at < :end AND a.sentiment IS NOT NULL"
@@ -68,8 +70,8 @@ def query_mentions(
     return df[columns]
 
 
-EXPORT_COLUMNS = ["brand", "brand_group", "source", "created_at", "language", "text", "url", "rating", "sentiment",
-                  "sentiment_score", "emotion", "category", "feature", "topic"]
+EXPORT_COLUMNS = ["brand", "brand_group", "source", "created_at", "language", "text", "text_en", "url", "rating",
+                  "sentiment", "sentiment_score", "emotion", "category", "feature", "topic"]
 
 
 def query_export_mentions(
@@ -80,7 +82,7 @@ def query_export_mentions(
     if not brand_ids or not sources:
         return pd.DataFrame(columns=EXPORT_COLUMNS)
     stmt = text(
-        "SELECT b.name AS brand, b.brand_group, m.source, m.created_at, m.language, m.text, m.url, m.rating, "
+        "SELECT b.name AS brand, b.brand_group, m.source, m.created_at, m.language, m.text, m.text_en, m.url, m.rating, "
         "a.sentiment, a.sentiment_score, a.emotion, a.category, a.feature, t.label AS topic "
         "FROM mentions m JOIN brands b ON b.id = m.brand_id "
         "LEFT JOIN analysis a ON a.mention_id = m.id LEFT JOIN topics t ON t.id = a.topic_id "
@@ -128,20 +130,36 @@ def query_topics(engine: Engine, brand_id: int) -> pd.DataFrame:
     """The brand's topics with their priority snapshot, total mentions and mean sentiment."""
     stmt = text(
         "SELECT t.id, t.label, t.category, t.volume_7d, t.volume_prev_7d, t.pain, t.trend, t.quadrant, "
-        "t.scored_at, COUNT(a.mention_id) AS mentions, AVG(a.sentiment_score) AS mean_sentiment "
+        "t.scored_at, t.description, t.label_source, COUNT(a.mention_id) AS mentions, AVG(a.sentiment_score) AS mean_sentiment "
         "FROM topics t LEFT JOIN analysis a ON a.topic_id = t.id WHERE t.brand_id = :b "
-        "GROUP BY t.id, t.label, t.category, t.volume_7d, t.volume_prev_7d, t.pain, t.trend, t.quadrant, t.scored_at"
+        "GROUP BY t.id, t.label, t.category, t.volume_7d, t.volume_prev_7d, t.pain, t.trend, t.quadrant, t.scored_at, "
+        "t.description, t.label_source"
     )
     with engine.connect() as conn:
         df = pd.read_sql(stmt, conn, params={"b": brand_id})
     return df[df["mentions"] > 0].reset_index(drop=True)  # topics left empty by re-clustering are inactive
 
 
+def query_briefing(engine: Engine, brand_id: int, period: str, label: str) -> dict[str, Any] | None:
+    """The stored LLM briefing (nlp/llm/briefing.py) for a brand and period, or None (rule-based summary)."""
+    stmt = text("SELECT text, start_date, end_date, provider, model, created_at FROM briefings "
+                "WHERE brand_id = :b AND period = :p AND period_label = :l")
+    with engine.connect() as conn:
+        row = conn.execute(stmt, {"b": brand_id, "p": period, "l": label}).mappings().first()
+    if row is None:
+        return None
+    out = dict(row)
+    for key in ("start_date", "end_date"):
+        out[key] = pd.Timestamp(out[key]).date()
+    return out
+
+
 def query_topic_texts(engine: Engine, topic_ids: tuple[int, ...]) -> pd.DataFrame:
     if not topic_ids:
         return pd.DataFrame(columns=["topic_id", "text", "sentiment_score"])
     stmt = text(
-        "SELECT a.topic_id, m.text, a.sentiment_score FROM analysis a JOIN mentions m ON m.id = a.mention_id "
+        "SELECT a.topic_id, COALESCE(m.text_en, m.text) AS text, a.sentiment_score "
+        "FROM analysis a JOIN mentions m ON m.id = a.mention_id "
         "WHERE a.topic_id IN :ids"
     ).bindparams(bindparam("ids", expanding=True))
     with engine.connect() as conn:
@@ -357,6 +375,11 @@ def open_alerts(brand_id: int) -> int:
 @st.cache_data(ttl=60, show_spinner=False)
 def topics(brand_id: int) -> pd.DataFrame:
     return query_topics(get_engine(), brand_id)
+
+
+@st.cache_data(ttl=60, show_spinner=False)
+def briefing(brand_id: int, period: str = "last7", label: str = "last7") -> dict[str, Any] | None:
+    return query_briefing(get_engine(), brand_id, period, label)
 
 
 @st.cache_data(ttl=60, show_spinner=False)

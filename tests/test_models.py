@@ -42,7 +42,7 @@ def test_schema_uses_utf8mb4() -> None:
 
 def test_same_tables() -> None:
     assert set(SQL_TABLES) == set(TABLE_NAMES)
-    assert len(TABLE_NAMES) == 11
+    assert len(TABLE_NAMES) == 13
 
 
 @pytest.mark.parametrize("table", sorted(SQL_TABLES))

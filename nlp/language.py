@@ -26,6 +26,21 @@ import re
 from functools import lru_cache
 from typing import Any
 
+# Display names for translated mentions (nlp/llm/translate.py, dashboard and PDF quotes)
+LANGUAGE_NAMES = {
+    "hinglish": "Hinglish (Hindi written in Latin letters, mixed with English)", "hi": "Hindi", "bn": "Bengali",
+    "ur": "Urdu", "ta": "Tamil", "te": "Telugu", "mr": "Marathi", "ko": "Korean", "ja": "Japanese", "zh": "Chinese",
+    "th": "Thai", "vi": "Vietnamese", "id": "Indonesian", "es": "Spanish", "pt": "Portuguese", "fr": "French",
+    "de": "German", "it": "Italian", "nl": "Dutch",
+}
+
+
+def language_name(code: str | None) -> str:
+    """"bn" -> "Bengali"; unknown codes are returned as they are."""
+    name = LANGUAGE_NAMES.get(code or "", code or "another language")
+    return "Hinglish" if code == "hinglish" else name
+
+
 ANALYSED = ("en", "und")  # languages the English models handle (und = too short or unclear to tell)
 MIN_WORDS = 4
 MIN_CONFIDENCE = 0.5

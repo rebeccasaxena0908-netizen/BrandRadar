@@ -152,6 +152,52 @@ def _fmt_net(value: float) -> str:
     return f"{value:+.0f}"
 
 
+def top_risk(matrix: pd.DataFrame) -> tuple[str, pd.Series] | None:
+    """("fix_now" | "most_pressing" | "watch", topic row): the summary's biggest-risk pick."""
+    urgent = ranked_urgent(matrix) if not matrix.empty else matrix
+    active = urgent[urgent["volume_7d"] > 0] if not urgent.empty else urgent
+    if not active.empty:
+        top = active.iloc[0]
+        return ("fix_now" if top["quadrant"] == FIX_NOW else "most_pressing"), top
+    watch = matrix[(matrix["quadrant"] == MONITOR) & (matrix["volume_7d"] > 0)] if not matrix.empty else matrix
+    if not watch.empty:
+        return "watch", watch.sort_values("volume_7d", ascending=False).iloc[0]
+    return None
+
+
+def biggest_win(table: FeatureTable, brand_id: int, competitor_ids: list[int]) -> tuple[str, str, float, float | None] | None:
+    """("beats" | "liked", feature, own net, competitors' net or None): the summary's biggest-win pick."""
+    if not table.features or brand_id not in table.net.index:
+        return None
+    own = table.net.loc[brand_id]
+    rivals = table.net.loc[[c for c in competitor_ids if c in table.net.index]].mean() if competitor_ids else None
+    best = None
+    enough = table.counts.loc[brand_id] >= MIN_FEATURE_MENTIONS  # only claim wins on solid numbers
+    for feature in table.features:
+        if not enough[feature] or pd.isna(own[feature]) or rivals is None or pd.isna(rivals[feature]):
+            continue
+        gap = own[feature] - rivals[feature]
+        if gap > 0 and (best is None or gap > best[1]):
+            best = (feature, gap)
+    if best:
+        f = best[0]
+        return "beats", f, float(own[f]), float(rivals[f])  # type: ignore[index]
+    solid = own[enough].dropna()
+    if solid.gt(0).any():
+        f = solid.idxmax()
+        return "liked", f, float(own[f]), None
+    return None
+
+
+def top_request(mentions: pd.DataFrame, brand_id: int, request_label: str | None) -> tuple[int, str | None, int]:
+    """(requests, top requested feature or None, its count): the summary's request pick."""
+    requests = mentions[(mentions["brand_id"] == brand_id) & (mentions["category"] == request_label)]
+    named = requests["feature"].dropna().value_counts()
+    if named.empty or int(named.iloc[0]) < MIN_REQUESTS_FOR_TOP:
+        return len(requests), None, 0
+    return len(requests), str(named.index[0]), int(named.iloc[0])
+
+
 def summary_picks(
     brand_name: str,
     matrix: pd.DataFrame,
@@ -166,63 +212,44 @@ def summary_picks(
 ) -> Summary:
     """Four plain-language lines built from the numbers only (no LLM). Values are HTML-safe text with
     <b> for emphasis."""
-    # biggest risk: top Fix now topic, else the top Quick win that is active this week
-    urgent = ranked_urgent(matrix) if not matrix.empty else matrix
-    active = urgent[urgent["volume_7d"] > 0] if not urgent.empty else urgent
-    if not active.empty:
-        top = active.iloc[0]
-        lead = "Biggest risk" if top["quadrant"] == FIX_NOW else "No Fix-now risks. Most pressing"
-        n = int(top["volume_7d"])
-        risk = (f"{lead}: <b>{html.escape(str(top['label']))}</b> — {n} complaint{'s' if n != 1 else ''} this week, "
-                f"{change_phrase(n, int(top['volume_prev_7d']))}.")
+    # biggest risk: top Fix now topic, else the top Quick win that is active this week, else a busy Monitor topic
+    pick = top_risk(matrix)
+    if pick is None:
+        risk = "No urgent complaint themes this week."
     else:
-        # nothing urgent: name the busiest Monitor topic (many mild complaints, possibly spiking)
-        watch = matrix[(matrix["quadrant"] == MONITOR) & (matrix["volume_7d"] > 0)] if not matrix.empty else matrix
-        if not watch.empty:
-            top = watch.sort_values("volume_7d", ascending=False).iloc[0]
-            n = int(top["volume_7d"])
+        kind, top = pick
+        n = int(top["volume_7d"])
+        if kind == "watch":  # nothing urgent: the busiest Monitor topic (many mild complaints, possibly spiking)
             risk = (f"No urgent risks. Watch: <b>{html.escape(str(top['label']))}</b> — {n} mild complaint"
                     f"{'s' if n != 1 else ''} this week, {change_phrase(n, int(top['volume_prev_7d']))}.")
         else:
-            risk = "No urgent complaint themes this week."
+            lead = "Biggest risk" if kind == "fix_now" else "No Fix-now risks. Most pressing"
+            risk = (f"{lead}: <b>{html.escape(str(top['label']))}</b> — {n} complaint{'s' if n != 1 else ''} this week, "
+                    f"{change_phrase(n, int(top['volume_prev_7d']))}.")
 
     # biggest win: feature where the brand beats the competitors' average by the most
     win = "No clear win over competitors yet."
-    if table.features and brand_id in table.net.index:
-        own = table.net.loc[brand_id]
-        rivals = table.net.loc[[c for c in competitor_ids if c in table.net.index]].mean() if competitor_ids else None
-        best = None
-        enough = table.counts.loc[brand_id] >= MIN_FEATURE_MENTIONS  # only claim wins on solid numbers
-        for feature in table.features:
-            if not enough[feature] or pd.isna(own[feature]) or rivals is None or pd.isna(rivals[feature]):
-                continue
-            gap = own[feature] - rivals[feature]
-            if gap > 0 and (best is None or gap > best[1]):
-                best = (feature, gap)
-        if best:
-            f = best[0]
-            win = (f"Biggest win: <b>{html.escape(feature_name(f))}</b> — {_fmt_net(own[f])} net sentiment vs "
-                   f"{_fmt_net(rivals[f])} for competitors.")
-        else:
-            solid = own[enough].dropna()
-            if solid.gt(0).any():
-                f = solid.idxmax()
-                win = (f"Users like <b>{html.escape(feature_name(f))}</b> ({_fmt_net(own[f])} net sentiment), "
-                       "but competitors score as well or better.")
+    won = biggest_win(table, brand_id, competitor_ids)
+    if won and won[0] == "beats":
+        _, f, own_net, rival_net = won
+        win = (f"Biggest win: <b>{html.escape(feature_name(f))}</b> — {_fmt_net(own_net)} net sentiment vs "
+               f"{_fmt_net(rival_net)} for competitors.")  # type: ignore[arg-type]
+    elif won:
+        _, f, own_net, _ = won
+        win = (f"Users like <b>{html.escape(feature_name(f))}</b> ({_fmt_net(own_net)} net sentiment), "
+               "but competitors score as well or better.")
 
     # top requested feature (the profile's request label: "feature request", "product request", …)
     noun = request_label or "request"
-    requests = mentions[(mentions["brand_id"] == brand_id) & (mentions["category"] == request_label)]
-    if requests.empty:
+    total_requests, feature, count = top_request(mentions, brand_id, request_label)
+    if not total_requests:
         request = f"No {noun}s in this period."
     else:
-        named = requests["feature"].dropna().value_counts()
-        total = f"{len(requests)} {noun}{'s' if len(requests) != 1 else ''}"
-        if named.empty or int(named.iloc[0]) < MIN_REQUESTS_FOR_TOP:
+        total = f"{total_requests} {noun}{'s' if total_requests != 1 else ''}"
+        if feature is None:
             request = f"{total}; no single feature stands out yet."
         else:
-            request = (f"Top request: <b>{html.escape(feature_name(named.index[0]))}</b> "
-                       f"({int(named.iloc[0])} of {total}).")
+            request = f"Top request: <b>{html.escape(feature_name(feature))}</b> ({count} of {total})."
 
     # net sentiment change
     if net_sentiment is None:

@@ -49,6 +49,7 @@ from reports import quiet_streamlit
 
 quiet_streamlit()
 
+from nlp.language import language_name
 from nlp.priority import FIX_NOW, QUICK_WINS
 from nlp.profiles import Profile, get_profile
 from reports.export import slug
@@ -103,6 +104,7 @@ class BrandReport:
     summary: insights.Summary
     complaints_this: pd.Series
     complaints_last: pd.Series
+    briefing: dict[str, Any] | None = None  # LLM-written briefing for this week (nlp/llm/briefing.py), if any
     demo: bool = False
     generated_at: datetime = field(default_factory=utc_now)
 
@@ -182,6 +184,7 @@ def gather(engine: Engine, brand_ref: str | int, week: Week, now: datetime | Non
         table=table, feature_since=feature_df["created_at"].min() if not feature_df.empty else None,
         quotes=insights.pick_quotes(own), summary=summary,
         complaints_this=complaint_counts(own, profile), complaints_last=complaint_counts(own_prev, profile),
+        briefing=data.query_briefing(engine, bid, "week", week.label),
         demo=settings.demo, generated_at=now or utc_now(),
     )
 
@@ -424,6 +427,12 @@ def kpi_row(rep: BrandReport) -> Table:
 def summary_section(rep: BrandReport) -> KeepTogether:
     marks = {"risk": SENTIMENT_COLOURS["negative"], "win": SENTIMENT_COLOURS["positive"], "request": "#E79AA6",
              "change": BERRY}
+    if rep.briefing:  # written by the LLM from this report's numbers and quotes; every number was checked
+        tag = (f'<font name="Montserrat-Bold" color="{BERRY}">AI-WRITTEN</font>  '
+               f'{plain(rep.briefing["model"])} · every number checked against the data')
+        return section("Executive summary", f"{rep.name} in {rep.week.span}",
+                       [Paragraph(plain(rep.briefing["text"]), style("brief", "Figtree", 9.6, INK, 14.2)),
+                        Paragraph(tag, S["small"])])
     s = rep.summary
     rows = [[Dot(marks[kind], 5.5), Paragraph(markup(line), S["ink"])]
             for kind, line in (("risk", s.risk), ("win", s.win), ("request", s.request), ("change", s.change))]
@@ -488,6 +497,8 @@ def urgent_section(rep: BrandReport) -> KeepTogether:
                 f' · pain {t["pain"]:.2f}')
         quote = insights.topic_quotes(rep.texts, int(t["id"]), n=1, max_len=150)
         cell = [Paragraph(plain(t["label"]), S["topic"]), Paragraph(meta, S["small"])]
+        if isinstance(t.get("description"), str) and t["description"]:
+            cell.append(Paragraph(plain(t["description"]), style("td", "Figtree", 8, INK_SOFT, 10.5)))
         if quote:
             cell.append(Paragraph(f'“{plain(quote[0])}”', style("tq", "Figtree", 8, MUTED, 10.5)))
         rows.append([Dot(charts.QUADRANT_COLOURS[t["quadrant"]]), cell])
@@ -544,7 +555,12 @@ def quotes_section(rep: BrandReport) -> KeepTogether:
         stars = f" · {int(q['rating'])}/5" if q["rating"] is not None and not pd.isna(q["rating"]) else ""
         meta = (f'<font name="Montserrat-SemiBold" color="{SENTIMENT_COLOURS[sentiment]}">{sentiment.upper()}</font>'
                 f'  {data.SOURCES.get(q["source"], q["source"])}{stars} · {pd.Timestamp(q["created_at"]):%d %b}')
-        cards.append(Card([Paragraph(f"“{plain(q['text'])}”", S["quote"]), Paragraph(meta, S["small"])],
+        body: list[Flowable] = [Paragraph(f"“{plain(q['text'])}”", S["quote"])]
+        if isinstance(q.get("original"), str) and q["original"].strip():  # translated by the LLM (Step 10)
+            original = plain(q["original"][:240])  # scripts the font lacks (Bengali, Korean…) drop out
+            body.append(Paragraph(f'<font name="Figtree-SemiBold">Translated from {plain(language_name(q.get("language")))}</font>'
+                                  + (f" · {original}" if original.strip(" .") else ""), style("qo", "Figtree", 7.8, MUTED, 10.5)))
+        cards.append(Card([*body, Paragraph(meta, S["small"])],
                           accent=SENTIMENT_COLOURS[sentiment], padding=10, gap=4))
         cards.append(Spacer(1, 6))
     return section("What people are saying", caption, cards[:-1])

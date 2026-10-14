@@ -60,6 +60,16 @@ def _parse(name: str, raw: dict) -> Profile:
     )
 
 
+def parse_profile(name: str, raw: dict) -> Profile:
+    """Validate one profile's raw YAML mapping (as in profiles.yaml); raises ValueError with the problems."""
+    return _parse(name, raw)
+
+
+def clear_cache() -> None:
+    """Forget the loaded profiles (after a new one was added to profiles.yaml)."""
+    _cached.cache_clear()
+
+
 def load_profiles(path: Path = PROFILES_FILE) -> dict[str, Profile]:
     data = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
     profiles = {name: _parse(name, raw or {}) for name, raw in (data.get("profiles") or {}).items()}

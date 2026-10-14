@@ -106,6 +106,23 @@ list beside it; the feature radar and executive summary sit side by side below. 
 - **Demo data pill**: a small berry pill on its own line under the subtitle. Placing it after the
   wordmark pushed it into the Brand selector, and inline with the subtitle made the subtitle wrap.
 
+## Step 10 – AI-written briefing, topic descriptions, translated quotes
+
+| | |
+|---|---|
+| Real data, Note apps, desktop (1440 px) | [step10-desktop.png](screenshots/step10-desktop.png) |
+| Real data, Note apps, phone (390 px) | [step10-mobile.png](screenshots/step10-mobile.png) |
+| Real data, Skincare (thin data), desktop | [step10-skincare-desktop.png](screenshots/step10-skincare-desktop.png) |
+
+- **Briefing in the Executive summary card**, replacing the rule-based text only when a stored briefing
+  exists for the brand and period. Under it a small berry **AI-written** pill plus the period, model and
+  "every number checked against the data", so readers can tell it apart from computed text. Without a
+  briefing the card is exactly the Step 6 summary.
+- **Topic descriptions** (one sentence) sit under each topic in "Act on these first" and in the matrix
+  hover, in the secondary text colour, so the label stays the scannable part.
+- **Translated quotes** show the English text as the quote and the original below it in a smaller,
+  muted line ("Translated from Bengali · …"), so nobody mistakes the translation for the author's words.
+
 ## Lessons for future UI work
 
 - **Put padding on the glass wrapper, never on the keyed block.** Streamlit sizes Plotly charts from the

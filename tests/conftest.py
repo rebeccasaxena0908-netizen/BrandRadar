@@ -45,3 +45,12 @@ def notion(brands: list[BrandSpec]) -> BrandSpec:
 def client() -> HttpClient:
     """HTTP client with no retries and no rate-limit delay, for use with `responses`."""
     return HttpClient(session=make_session(retries=0), limiter=RateLimiter(0), timeout=5)
+
+
+@pytest.fixture(autouse=True)
+def no_real_llm(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Tests never call a real LLM, whatever LLM_PROVIDER says in .env: get_provider() returns the
+    rule-based NoneProvider unless a test passes its own fake provider."""
+    from nlp.llm import provider
+
+    monkeypatch.setattr(provider, "get_provider", lambda cfg=None: provider.NoneProvider())

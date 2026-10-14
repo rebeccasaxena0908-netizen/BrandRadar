@@ -34,6 +34,9 @@ wordcloud==1.9.4
 reportlab==4.4.4
 kaleido==1.1.0
 
+# AI insights (Step 10): only for LLM_PROVIDER=anthropic (ollama is plain HTTP)
+anthropic==1.10.0
+
 # Tests
 pytest==8.3.4
 responses==0.25.3

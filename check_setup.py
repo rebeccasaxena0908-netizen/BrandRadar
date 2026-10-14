@@ -211,8 +211,8 @@ def check_models() -> None:
 
 
 def check_brands() -> None:
-    """Groups, and per brand: mentions, analysed, and texts skipped because they are not English."""
-    section("Brands by group (mentions · analysed · skipped, not English)")
+    """Groups, and per brand: mentions, analysed, translated by the LLM, and texts still skipped (not English)."""
+    section("Brands by group (mentions · analysed · translated · skipped, not English)")
     try:
         from sqlalchemy import bindparam, text
 
@@ -224,7 +224,9 @@ def check_brands() -> None:
             rows = conn.execute(text(
                 "SELECT b.brand_group, b.profile, b.name, b.is_own, COUNT(m.id), "
                 "SUM(a.sentiment IS NOT NULL), "
-                "SUM(a.mention_id IS NOT NULL AND COALESCE(m.language, 'und') NOT IN :analysed) "
+                "SUM(a.mention_id IS NOT NULL AND COALESCE(m.language, 'und') NOT IN :analysed "
+                "    AND COALESCE(m.translation_status, '') <> 'ok'), "
+                "SUM(m.translation_status = 'ok') "
                 "FROM brands b LEFT JOIN mentions m ON m.brand_id = b.id "
                 "LEFT JOIN analysis a ON a.mention_id = m.id "
                 "GROUP BY b.id ORDER BY b.brand_group, b.is_own DESC, b.name"
@@ -235,12 +237,12 @@ def check_brands() -> None:
         report(False, "Read brands", repr(exc))
         return
     group = None
-    for g, profile, name, own, mentions, analysed, skipped in rows:
+    for g, profile, name, own, mentions, analysed, skipped, translated in rows:
         if g != group:
             group = g
             print(f"    {g} ({profile})")
         star = "*" if own else " "
-        print(f"     {star}{name:<22} {mentions:>6,} · {int(analysed or 0):>6,} · {int(skipped or 0):>4,}")
+        print(f"     {star}{name:<22} {mentions:>6,} · {int(analysed or 0):>6,} · {int(translated or 0):>4,} · {int(skipped or 0):>4,}")
     print("     (* = own brand)")
     print(f"    YouTube quota today (Pacific): {usage.get('search', 0)} search calls, {usage.get('units', 0)} units")
 
@@ -297,6 +299,51 @@ def find_chrome() -> str | None:
     return None
 
 
+def check_llm() -> None:
+    section("LLM insights (Step 10)")
+    try:
+        from sqlalchemy import text
+
+        from config import settings
+        from db.session import get_engine
+        from nlp.llm.provider import OllamaProvider, get_provider
+    except Exception as exc:  # noqa: BLE001
+        report(False, "Import LLM modules", repr(exc))
+        return
+    try:
+        provider = get_provider()
+    except ValueError as exc:
+        report(False, "LLM_PROVIDER", str(exc))
+        return
+    if provider.name == "none":
+        report(True, "LLM provider", "none — rule-based labels and summary (optional: see README 'AI insights')")
+    elif isinstance(provider, OllamaProvider):
+        ok, detail = provider.available()
+        report(ok, "LLM provider ollama", detail, warn_only=True)
+    else:
+        report(bool(settings.anthropic_api_key), "LLM provider anthropic",
+               f"{provider.model}" if settings.anthropic_api_key else "ANTHROPIC_API_KEY missing", warn_only=True)
+    try:
+        with get_engine().connect() as conn:
+            sources = dict(conn.execute(text("SELECT label_source, COUNT(*) FROM topics t WHERE EXISTS "
+                                             "(SELECT 1 FROM analysis a WHERE a.topic_id = t.id) GROUP BY label_source")).all())
+            translated = dict(conn.execute(text("SELECT translation_status, COUNT(*) FROM mentions "
+                                                "WHERE translation_status IS NOT NULL GROUP BY translation_status")).all())
+            briefings = conn.execute(text("SELECT COUNT(*) FROM briefings WHERE period = 'last7'")).scalar_one()
+            runs = conn.execute(text(
+                "SELECT r.stage, r.seconds, r.generated, r.cached, r.fallbacks, r.cost_usd, r.model FROM llm_runs r "
+                "JOIN (SELECT stage, MAX(id) AS id FROM llm_runs GROUP BY stage) last ON last.id = r.id ORDER BY r.stage")).all()
+    except Exception as exc:  # noqa: BLE001
+        report(False, "Read LLM tables", f"{exc!r} — run db/migrations/010_llm.sql and db/schema.sql")
+        return
+    print(f"    Active topic labels: " + (", ".join(f"{n} {src}" for src, n in sorted(sources.items())) or "none"))
+    print(f"    Translations: " + (", ".join(f"{n} {status}" for status, n in sorted(translated.items())) or "none yet"))
+    print(f"    Briefings (last 7 days): {briefings}")
+    for stage, seconds, generated, cached, fallbacks, cost, model in runs:
+        print(f"    last {stage:<10} {seconds:>6.1f}s · {generated} generated · {cached} cached · {fallbacks} fallback(s)"
+              + (f" · ${float(cost):.4f}" if cost else "") + f" · {model}")
+
+
 def check_reports() -> None:
     section("Reports and notifications (Step 9)")
     fonts = Path(__file__).resolve().parent / "ui" / "fonts"
@@ -337,6 +384,7 @@ def main() -> int:
         check_database()
         check_brands()
         check_extras()
+        check_llm()
         check_reports()
 
     print()
