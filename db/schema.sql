@@ -248,3 +248,24 @@ CREATE TABLE IF NOT EXISTS llm_runs (
   PRIMARY KEY (id),
   KEY ix_llm_runs_started (started_at)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- Step 11: brands requested from the dashboard ("Track a new brand") and group removals. The only table
+-- the dashboard writes to; the collector does the research, writes brands.yaml and runs the pipeline.
+CREATE TABLE IF NOT EXISTS brand_requests (
+  id           INT UNSIGNED NOT NULL AUTO_INCREMENT,
+  kind         VARCHAR(8)   NOT NULL DEFAULT 'track',  -- 'track' / 'remove'
+  name         VARCHAR(80)  NOT NULL,           -- the brand as typed (remove: the group)
+  group_name   VARCHAR(64)  NULL,               -- the group it creates (or removes)
+  status       VARCHAR(24)  NOT NULL DEFAULT 'queued',
+  detail       VARCHAR(255) NULL,               -- what the collector is doing right now
+  setup        JSON         NULL,               -- proposed (then reviewed) group: profile, brands, rules
+  preview      JSON         NULL,               -- dry-run counts and sample texts for the review
+  result       JSON         NULL,               -- mentions per brand and source, timings, top topics
+  error        VARCHAR(1024) NULL,
+  created_at   DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  updated_at   DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  applied_at   DATETIME     NULL,               -- written to brands.yaml (the group exists from here on)
+  finished_at  DATETIME     NULL,
+  PRIMARY KEY (id),
+  KEY ix_brand_requests_status (status)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;

@@ -89,6 +89,11 @@ class Settings:
     anthropic_price_output: float
     llm_label_refresh: float
     llm_max_translations: int
+    # Step 11: track any brand from the dashboard
+    track_poll_seconds: int
+    track_max_active: int
+    track_min_mentions: int
+    track_source_seconds: float
 
     @property
     def database_url(self) -> str:
@@ -187,6 +192,10 @@ def load_settings() -> Settings:
         anthropic_price_output=_get_float("ANTHROPIC_PRICE_OUTPUT", 0.50),
         llm_label_refresh=_get_float("LLM_LABEL_REFRESH", 0.2),
         llm_max_translations=_get_int("LLM_MAX_TRANSLATIONS", 80),
+        track_poll_seconds=_get_int("TRACK_POLL_SECONDS", 30),
+        track_max_active=_get_int("TRACK_MAX_ACTIVE", 3),
+        track_min_mentions=_get_int("TRACK_MIN_MENTIONS", 30),
+        track_source_seconds=_get_float("TRACK_SOURCE_SECONDS", 90.0),
     )
 
 

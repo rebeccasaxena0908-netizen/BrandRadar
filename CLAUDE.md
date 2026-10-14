@@ -15,7 +15,8 @@ The full spec and the step-by-step roadmap live in [brand_radar_roadmap.md](bran
 - All settings in `config.py` loaded from `.env`; no secrets in code; `.env` is in `.gitignore`
 - MySQL/MariaDB in XAMPP on `localhost:3306` via SQLAlchemy + PyMySQL, `utf8mb4` everywhere
 - Every data source fails gracefully and logs errors to `fetch_runs`
-- The Streamlit dashboard only reads from MySQL; it never calls external APIs or loads the big models
+- The Streamlit dashboard only reads from MySQL; it never calls external APIs or loads the big models.
+  One exception (Step 11): the Track card writes to `brand_requests` only; the collector does the rest
 - Reddit is optional and skipped cleanly when no credentials exist
 - pytest tests with mocked HTTP for sources and for the priority maths
 - At the end of each step: run the tests, run `check_setup.py`, then git commit with a clear message
@@ -47,6 +48,7 @@ python -m nlp.priority [--as-of DATE] [--report]                    # priority s
 python manage_brands.py --recheck-mentions [--apply]                # after changing excludes
 streamlit run app.py                                                # dashboard
 python collector.py [--once]                                        # fetch -> NLP -> topics -> priority, every 6 h
+python collector.py --requests-once                                 # work through dashboard brand requests
 scripts/start.sh                                                    # collector (background) + dashboard
 python seed_demo.py && BRAND_RADAR_DEMO=1 streamlit run app.py      # demo database + dashboard on it
 python tools/screenshot.py --url http://localhost:8501 --name stepN --motion   # 1440px + 390px captures
@@ -115,6 +117,15 @@ python -m nlp.llm --check | --translate [--redo] | --labels --briefings [--brand
   line, never as "risk: none" (small models garble those). `last7` regenerates on a new `facts_hash`,
   `week` is written once. Tests force NoneProvider (conftest) and mock the LLM; never call a real one.
   Schema changes for an existing DB go in `db/migrations/` (`010_llm.sql`).
+- Track any brand (Step 11, `tracking/`): `store.py` owns brand_requests statuses (conditional UPDATEs: claimed
+  once, Cancel during research wins); `setup.py` turns `nlp/llm/research.py` answers (market + per-brand rules,
+  each field checked, rule-based fallback) into a JSON setup, dry-runs it and converts it to BrandEntry;
+  `worker.py` is the collector's 30 s job (removals, approved, recheck, queued; one step per tick). Research,
+  dry run and the new-group pipeline hold `collector.HEAVY`, which the 6-hour cycle holds too. On approve the
+  worker uses `manage_brands.append_entries` (removal: `remove_group_entries` + `delete_group_rows`). Only groups
+  with an applied track request are removable from the dashboard. Each source gets `TRACK_SOURCE_SECONDS`
+  (`fetch.call_with_deadline` + `sources.base.deadline`); YouTube uses only the first query on the first fetch.
+  The card's request list is an `@st.fragment(run_every="10s")`; review panels live outside it.
 - Demo data (`seed_demo.py` THEMES) covers all three groups with each profile's categories/features;
   `tests/test_demo_and_status.py` checks every brand is full and every own brand has an alert.
 - Demo data lives in `brand_radar_demo` (`BRAND_RADAR_DEMO=1` switches `config`); never write demo data

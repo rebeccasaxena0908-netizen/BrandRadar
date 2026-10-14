@@ -43,6 +43,9 @@ It works for any industry. Out of the box it tracks three brand groups, each wit
   with a one-line description, a weekly briefing per brand checked against the numbers, and English
   translations of Hindi, Bengali, Hinglish, Vietnamese and other mentions so they get analysed too. It
   falls back to the rule-based labels and summary per item, and the dashboard never calls the LLM.
+- **Track any brand from the dashboard** (Step 11): type a name (McDonald's, Nivea, Tesla…) and the
+  collector researches its industry, competitors and ambiguous meanings, shows a dry-run preview to approve,
+  edit or cancel, then fetches and analyses the new group. Groups added this way can be removed again.
 - **Demo mode** with a separate, fictional dataset, so the dashboard can be shown without real data.
 
 ## Tech stack
@@ -79,7 +82,8 @@ It works for any industry. Out of the box it tracks three brand groups, each wit
 ```
 
 The collector and the dashboard are separate processes. The dashboard only reads MySQL; it never calls an
-external API or loads a model, so it stays fast and light.
+external API or loads a model, so it stays fast and light. Its one write is the "Track a new brand" card,
+which only adds and updates rows in `brand_requests`; the collector checks that table every 30 seconds.
 
 ## Setup
 
@@ -141,6 +145,7 @@ run on the CPU (or an NVIDIA GPU if PyTorch sees one), so expect it to take long
 | Dashboard | `streamlit run app.py` | `streamlit run app.py` |
 | One collector cycle | `python collector.py --once` | `python collector.py --once` |
 | Build the demo database | `python seed_demo.py` | `python seed_demo.py` |
+| Work through "Track a new brand" requests now | `python collector.py --requests-once` | same |
 | Dashboard on demo data | `BRAND_RADAR_DEMO=1 streamlit run app.py` | `$env:BRAND_RADAR_DEMO=1; streamlit run app.py` |
 | Import a CSV (`source, author, text, date, rating`) | `python fetch.py --csv file.csv --brand Notion` | same |
 | Add a brand interactively | `python manage_brands.py add` | same |
@@ -284,6 +289,59 @@ BRAND_RADAR_DEMO=1 python -m nlp.llm --labels --briefings
 (categories, complaints, praise, requests, features, sources) and shows it for you to accept, edit or reject
 before it is written to `profiles.yaml`. Without an LLM the brand uses `consumer_product`.
 
+## Track any brand from the dashboard
+
+The **Track a new brand** card at the bottom of the dashboard sets up a new group without the terminal.
+The collector must be running (`python collector.py` or `scripts/start.sh`); it checks for requests every
+`TRACK_POLL_SECONDS` (30), separately from the 6-hour cycle.
+
+1. **Track.** Type a brand and press Track. Names already tracked (in any spelling: *McDonalds* =
+   *McDonald's*) are refused, and at most `TRACK_MAX_ACTIVE` (3) requests can be in progress.
+2. **Researching** (about 1–2 minutes with gemma3:4b):
+   - the industry: an existing profile, or a new one drafted for review (*fast food*, *banking*, *airlines*…);
+   - the market, which becomes the group name (*Body lotions*, *Burger chains*), and 3 well-known competitors;
+   - for every brand: spellings, other meanings of the name and the rules that filter them out: phrases cut
+     out before matching (*Tesla coil*), words that drop a post (*physicist*, *pigeon*), and for names that are
+     often something else, context words a post must contain (*pizza*, *order* for Domino's). Every rule is
+     checked: an exclude phrase must contain the name, a drop word must not, and words describing the
+     industry's own products can never drop a post;
+   - App Store and Google Play ids, looked up live and only kept when the developer is the brand and the
+     LLM says it has its own app (store reviews then become sources);
+   - a **dry run** of the name-matched sources over the last 30 days (nothing stored; YouTube searches
+     titles only, 1 call).
+3. **Waiting for your review.** The card shows the proposed industry, group, competitors and rules, the
+   dry-run counts per brand and source, and 10 matched and 10 rejected texts. **Approve**, **Edit** (change
+   anything, add or leave out competitors, then approve or re-check) or **Cancel** (nothing is written).
+   Without an LLM, the review asks you to pick the industry profile and type the competitors; their rules
+   are filled in by a re-check.
+4. **Fetching → Analysing.** On approve, the collector saves a drafted profile to `profiles.yaml`, appends
+   the group to `brands.yaml` (the same code as `manage_brands.py add`) and runs fetch → NLP → translate →
+   topics → priority → labels and briefing for the **new group only**, one heavy step at a time (the models
+   run in a child process and Ollama is unloaded after use). Each source gets at most
+   `TRACK_SOURCE_SECONDS` (90 s) per brand, so a slow GDELT can't hold a request up; YouTube uses only each
+   brand's first search query for this first fetch, and the 6-hour cycles fill in the rest.
+5. **Ready** or **Not enough data yet.** The card shows mentions per brand and source, analysed counts and
+   the top complaint topics. A brand whose own brand has fewer than `TRACK_MIN_MENTIONS` (30) analysed
+   mentions ends as *Not enough data yet*: the group stays and keeps collecting, and exported reviews can be
+   added with `python fetch.py --csv`. Pick the new group in the header to see its dashboard.
+   Physical products often start here: YouTube is read through the brand's newest 30 videos, which for a
+   brand like Nivea are mostly days-old Shorts with almost no comments yet (3 comments across 30 videos on the
+   first run), and GDELT often rate-limits a burst of new queries.
+
+**Measured on the first real run** (8 GB M2, gemma3:4b): McDonald's took about 4 minutes from Track to
+review (72 s research, 164 s dry run) and 28 minutes from Approve to Ready (fetch 3.5 min, NLP on 963
+mentions 10 min, translating 88 non-English mentions 9 min, topics 0.5 min, labels and briefing 5 min):
+635 analysed McDonald's mentions (500 Google Play reviews, 127 YouTube comments, 22 Mastodon posts) and 9
+complaint topics such as *Poor Product Quality*, *App Ordering Problems* and *Disney Villain Disappointment*.
+Nivea ended as *Not enough data yet*. The research picks the closest existing profile: McDonald's got
+`food_beverage`, which has no category for app problems, so app complaints land in its nearest category
+(*delivery*, *freshness/quality*); edit the profile, or pick a drafted one in the review, when that matters.
+
+**Removing a group.** *Remove a group added here* deletes a dashboard-added group's brands, mentions,
+analysis, topics and alerts, and its blocks in `brands.yaml`, after you type the group's name to confirm.
+Groups set up by hand in `brands.yaml` (Note apps, Skincare, Stationery) can only be removed there.
+`python collector.py --requests-once` works through pending requests from the terminal.
+
 ## Tracking another industry
 
 Each brand belongs to a **group** (one own brand plus competitors) and every group uses one **profile** from
@@ -405,6 +463,9 @@ Models: `cardiffnlp/twitter-roberta-base-sentiment-latest`, `j-hartmann/emotion-
   topics score zero pain, so the matrix hides them by default.
 - **The emotion model is weak on single reviews.** The dashboard only shows emotion in aggregate.
 - **The App Store and Play history is shallow**, so trends need the collector running over time.
+- **Brand research uses a 4B model.** It knows big brands well and small or local ones less so (it says
+  when it doesn't recognise a name). The review step is there to catch wrong competitors or rules, and
+  every rule is shown with the dry-run evidence before anything is stored.
 - **Small data.** With about 800 mentions, topics for small brands (ClickUp) can be skipped (30 complaints minimum).
 
 ## Project layout
@@ -421,7 +482,10 @@ sources/            hackernews, appstore, playstore, youtube, news, mastodon, de
                     shared HTTP + matching
 nlp/                pipeline (models, text, features, language, profiles), topics, priority,
                     llm/ (providers, translate, labels, briefing, profile drafts, run log)
-ui/                 styles.css (approved theme), streamlit.css, components, data, insights, charts, fonts/
+ui/                 styles.css (approved theme), streamlit.css, components, data, insights, charts, tracking
+                    (the Track a new brand card), fonts/
+tracking/           brand requests: store (statuses, validation), setup (research -> proposed group, dry run),
+                    apps (store id lookup), worker (the collector's request job)
 reports/            weekly (PDF), render (charts via Chrome), export (CSV), notify (email, Slack), weeks
 tests/              pytest suite (mocked HTTP and models)
 docs/               ui-decisions.md, first-run-skincare-stationery.md, screenshots/

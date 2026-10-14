@@ -306,4 +306,27 @@ class LlmRun(Base):
     error: Mapped[Optional[str]] = mapped_column(String(1024))
 
 
+
+class BrandRequest(Base):
+    """A brand typed into the dashboard's "Track a new brand" card (or a group removal), worked on by the
+    collector: queued -> researching -> review -> approved -> fetching -> analysing -> ready."""
+
+    __tablename__ = "brand_requests"
+    __table_args__ = (Index("ix_brand_requests_status", "status"),)
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    kind: Mapped[str] = mapped_column(String(8), default="track", server_default="track")
+    name: Mapped[str] = mapped_column(String(80))
+    group_name: Mapped[Optional[str]] = mapped_column(String(64))
+    status: Mapped[str] = mapped_column(String(24), default="queued", server_default="queued")
+    detail: Mapped[Optional[str]] = mapped_column(String(255))
+    setup: Mapped[Optional[dict[str, Any]]] = mapped_column(JSON)
+    preview: Mapped[Optional[dict[str, Any]]] = mapped_column(JSON)
+    result: Mapped[Optional[dict[str, Any]]] = mapped_column(JSON)
+    error: Mapped[Optional[str]] = mapped_column(String(1024))
+    created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
+    applied_at: Mapped[Optional[datetime]] = mapped_column(DateTime)
+    finished_at: Mapped[Optional[datetime]] = mapped_column(DateTime)
+
 TABLE_NAMES: tuple[str, ...] = tuple(Base.metadata.tables.keys())

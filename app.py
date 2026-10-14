@@ -1,4 +1,5 @@
 """Brand Radar dashboard (Streamlit). Reads MySQL only; never calls external APIs or loads NLP models.
+The one exception is the "Track a new brand" card (ui/tracking.py), which writes to brand_requests only.
 
     streamlit run app.py
 """
@@ -19,6 +20,7 @@ from nlp.profiles import SOFTWARE, get_profile
 from reports.export import csv_name, mentions_csv, slug
 from reports.weeks import Week
 from ui import charts, data, insights
+from ui.tracking import track_card
 from ui.components import (
     BERRY, COMPLAINT_CLOUD_COLOURS, EMOTION_COLOURS, INK, PRAISE_CLOUD_COLOURS, SENTIMENT_COLOURS,
     background_html, brand_colours, delta_html, empty_state, glass_card, inject_styles, kpi_card,
@@ -48,7 +50,9 @@ def reset_group_choices() -> None:
 
 def header(all_brands: pd.DataFrame) -> tuple[pd.DataFrame, pd.Series, list[pd.Series], date, date, tuple[str, ...]]:
     """Group, brand, competitors, dates and sources. Everything below stays within the chosen group."""
-    groups = list(dict.fromkeys(all_brands["brand_group"]))
+    # groups in the order they were added (lowest brand id first): the hand-made groups stay first and the
+    # default, groups tracked from the dashboard come after them
+    groups = list(dict.fromkeys(all_brands.sort_values("id", kind="stable")["brand_group"]))
     today = date.today()
     with glass_card("header"):
         logo, brand_col, comp_col, date_col, source_col = st.columns(
@@ -453,7 +457,8 @@ def main() -> None:
     brands = data.brands()
     if brands.empty:
         with glass_card("setup"):
-            empty_state("No brands yet", "Run python manage_brands.py, then fetch.py and the NLP pipeline.")
+            empty_state("No brands yet", "Track one below, or run python manage_brands.py, then fetch.py.")
+        track_card()
         return
     brands, brand, comps, start, end, sources = header(brands)
     if not sources:
@@ -464,6 +469,7 @@ def main() -> None:
                 group = brands["brand_group"].iloc[0]
                 empty_state(f"No mentions for {group} yet",
                             "Run python fetch.py, then the NLP pipeline (or wait for the collector's next cycle).")
+        track_card()
         return
     days = (end - start).days + 1
     prev_start, prev_end = data.previous_period(start, end)
@@ -492,6 +498,7 @@ def main() -> None:
     with right:
         executive_summary(brand, comps, matrix, table, current, previous, days)
     export_card(brand, ids, start, end, sources)
+    track_card()
     st.markdown(f'<div class="br-footnote">{start:%d %b} – {end:%d %b %Y} · '
                 f'{", ".join(data.SOURCES.get(s, s.title()) for s in sources)} · data refreshes every 60 s</div>',
                 unsafe_allow_html=True)

@@ -182,6 +182,7 @@ Main packages: `streamlit`, `plotly`, `wordcloud`, `sqlalchemy`, `pymysql`, `pyt
 | 8 | Optional Reddit source (only if you have approved access); free social sources: Mastodon, dev.to | Done |
 | 9 | Export: PDF/CSV weekly report, email or Slack alert | Done |
 | 10 | Optional: LLM-written executive summary, multi-language reviews (AI topic labels, grounded weekly briefings, translation, profile drafts; Ollama or Claude) | Done |
+| 11 | Track any brand: type a brand in the dashboard; the collector researches its industry, competitors and matching rules, shows a dry-run preview to approve / edit / cancel, then fetches and analyses the new group; dashboard-added groups can be removed | Done |
 
 ---
 

@@ -242,6 +242,15 @@ def test_group_selector_keeps_everything_within_the_group(app) -> None:  # type:
     assert at.multiselect[0].options == ["ClickUp"]
 
 
+def test_groups_keep_the_order_they_were_added(engine, app) -> None:  # type: ignore[no-untyped-def]
+    with sessionmaker(bind=engine)() as s:  # tracked from the dashboard later, alphabetically first
+        s.add(Brand(name="Nivea", is_own=True, keywords=["nivea"], brand_group="Body lotions", profile="beauty_skincare"))
+        s.commit()
+    at = app.run()
+    assert at.selectbox(key="group").options == ["Note apps", "Stationery", "Body lotions"]
+    assert at.selectbox(key="group").value == "Note apps"  # the hand-made group stays the default
+
+
 def test_other_group_starts_on_its_own_brand(app) -> None:  # type: ignore[no-untyped-def]
     app.session_state["group"] = "Stationery"
     at = app.run()

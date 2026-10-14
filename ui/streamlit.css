@@ -188,3 +188,52 @@ h1, h2, h3, h4 { font-family: Montserrat, sans-serif; color: var(--ink); }
 .br-quote-original { font-family: Figtree, sans-serif; font-size: 12px; color: var(--muted); margin: -2px 0 6px; line-height: 1.45; }
 .br-quote-original span { font-weight: 600; color: var(--ink-soft); }
 .br-rank-desc { display: block; font-family: Figtree, sans-serif; font-size: 12px; color: var(--ink-soft); margin-top: 2px; line-height: 1.4; }
+
+/* Step 11: "Track a new brand" card — request list, status pills, review panel */
+.br-track-msg { font-family: Figtree, sans-serif; font-size: 13px; border-radius: 12px; padding: 8px 12px; margin: 4px 0 10px; }
+.br-track-msg-ok { background: rgba(111,169,138,.12); color: #3F7A5B; }
+.br-track-msg-bad { background: rgba(217,83,106,.10); color: #B03A50; }
+.br-track-msg-warn { background: rgba(233,185,73,.16); color: #9C6B12; }
+.br-track-list { list-style: none; margin: 4px 0 0; padding: 0; display: flex; flex-direction: column; gap: 8px; }
+.br-track-item { background: rgba(255,255,255,.55); border: 1px solid rgba(255,255,255,.9); border-radius: 14px;
+  padding: 10px 14px; margin: 0 !important; }
+.br-track-top { display: flex; align-items: center; flex-wrap: wrap; gap: 6px 8px; font-family: Figtree, sans-serif;
+  font-size: 14px; color: var(--ink); }
+.br-track-group { color: var(--ink-soft); font-size: 13px; }
+.br-track-age { margin-left: auto; font-family: Figtree, sans-serif; font-size: 11.5px; color: var(--muted); }
+.br-track-pill { font-family: Montserrat, sans-serif; font-size: 9.5px; font-weight: 700; letter-spacing: .12em;
+  text-transform: uppercase; border-radius: 999px; padding: 3px 9px; white-space: nowrap; }
+.br-track-busy { background: rgba(158,74,90,.10); color: var(--berry); }
+.br-track-review { background: var(--berry); color: #fff; }
+.br-track-ok { background: rgba(111,169,138,.16); color: #3F7A5B; }
+.br-track-warn { background: rgba(233,185,73,.18); color: #9C6B12; }
+.br-track-bad { background: rgba(217,83,106,.12); color: #B03A50; }
+.br-track-off { background: rgba(183,174,176,.18); color: var(--ink-soft); }
+.br-track-detail { font-family: Figtree, sans-serif; font-size: 12.5px; color: var(--ink-soft); margin-top: 3px; line-height: 1.45;
+  overflow-wrap: anywhere; }
+.br-track-hint { font-family: Figtree, sans-serif; font-size: 12px; color: var(--ink-soft); margin-top: 4px; }
+.br-track-hint code { font-size: 11px; }
+.br-track-errors { margin: 4px 0 0; padding-left: 16px; font-family: Figtree, sans-serif; font-size: 11.5px; color: var(--muted); }
+.br-track-scroll { overflow-x: auto; }
+.br-track-table { border-collapse: collapse; margin-top: 6px; font-family: Figtree, sans-serif; font-size: 12px; color: var(--ink); width: 100%; }
+.br-track-table th { text-align: left; font-family: Montserrat, sans-serif; font-size: 9.5px; letter-spacing: .1em;
+  text-transform: uppercase; color: var(--muted); font-weight: 700; padding: 4px 8px 4px 0; border-bottom: 1px solid #E7CFCF; }
+.br-track-table td { padding: 5px 8px 5px 0; border-bottom: 1px solid rgba(231,207,207,.5); vertical-align: top; }
+.br-track-chip { display: inline-block; background: rgba(243,186,193,.28); color: var(--ink); border-radius: 999px;
+  padding: 1px 8px; margin: 1px 3px 1px 0; font-size: 11.5px; white-space: nowrap; }
+.br-track-none { color: var(--muted); }
+.br-track-small { font-size: 11px; color: var(--muted); margin-top: 2px; }
+.br-track-review-head { font-family: Montserrat, sans-serif; font-size: 14px; color: var(--ink); margin: 14px 0 4px; }
+.br-track-setup, .br-track-preview { font-family: Figtree, sans-serif; font-size: 13px; color: var(--ink); margin-top: 6px; }
+.br-track-setup .br-label, .br-track-preview .br-label { margin-right: 4px; }
+.br-track-notes, .br-track-counts { margin: 6px 0 0; padding-left: 18px; font-size: 12px; color: var(--ink-soft); }
+.br-track-samples { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-top: 8px; }
+.br-track-samples ul { margin: 4px 0 0; padding-left: 16px; font-size: 12px; color: var(--ink); line-height: 1.45; }
+.br-track-samples li { margin-bottom: 3px; overflow-wrap: anywhere; }
+.br-track-src { font-size: 10.5px; color: var(--muted); margin-right: 4px; }
+.br-track-edit-brand { font-family: Montserrat, sans-serif; font-size: 12.5px; color: var(--berry); margin: 10px 0 0; }
+[class*="st-key-track-review-"] { border-top: 1px solid #E7CFCF; margin-top: 6px; }
+@media (max-width: 640px) {
+  .br-track-samples { grid-template-columns: 1fr; }
+  .br-track-age { margin-left: 0; }
+}

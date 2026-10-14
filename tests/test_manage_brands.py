@@ -33,8 +33,9 @@ def write(tmp_path: Path, text: str) -> Path:
 
 def test_project_brands_yaml_is_valid() -> None:
     entries = load_yaml(PROJECT_ROOT / "brands.yaml")
-    assert [e.name for e in entries if e.is_own] == ["Notion", "Laneige", "DOMS"]
-    assert {e.group for e in entries} == {"Note apps", "Skincare", "Stationery"}
+    # the three hand-made groups come first; groups added from the dashboard (Step 11) follow them
+    assert [e.name for e in entries if e.is_own][:3] == ["Notion", "Laneige", "DOMS"]
+    assert {"Note apps", "Skincare", "Stationery"} <= {e.group for e in entries}
     entries = [e for e in entries if e.group == "Note apps"]
     assert [e.name for e in entries] == ["Notion", "Obsidian", "Evernote", "ClickUp"]
     assert all(e.app_store_id and e.play_store_id and e.features for e in entries)

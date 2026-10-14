@@ -123,6 +123,34 @@ list beside it; the feature radar and executive summary sit side by side below. 
 - **Translated quotes** show the English text as the quote and the original below it in a smaller,
   muted line ("Translated from Bengali · …"), so nobody mistakes the translation for the author's words.
 
+## Step 11 – Track a new brand
+
+| | |
+|---|---|
+| Nivea group (Skin care products), desktop | [step11-nivea-desktop.png](screenshots/step11-nivea-desktop.png) |
+| McDonald's group (Fast food restaurants), desktop | [step11-mcdonalds-desktop.png](screenshots/step11-mcdonalds-desktop.png) |
+| The Track card with a review open | [step11-review.png](screenshots/step11-review.png) |
+
+- **One card at the bottom of the page**, after Export: tracking a brand is occasional work, not something
+  to read every visit. A text box and a berry Track button; errors and confirmations appear as a soft
+  coloured line under it and stay for 8 s (an action is often followed by a second rerun that would
+  swallow a show-once message).
+- **Request list** as glass rows: name, the new group, a status pill (berry while working, solid berry for
+  "Waiting for your review", green Ready, amber Not enough data yet, red Failed, grey Cancelled/Removed),
+  the collector's current step ("Fetching YouTube · Dove (11/18)") and the age. It refreshes every 10 s in
+  a fragment; finished requests show a small table of mentions per brand and source, the top topics and
+  the time taken.
+- **The review panel lives outside the refreshing fragment**, so an edit form is never redrawn under the
+  cursor; the list asks for one full rerun when a request reaches review. It shows the industry, profile
+  and group, a table of each brand's rules as chips (keywords, cut out, drop if, must mention, YouTube and
+  the app found), the research notes, the dry-run counts, and 10 matched / 10 rejected samples side by side
+  with the source and the rejection reason in small muted type.
+- **Edit is a plain form** with the same field names as brands.yaml in brackets, so what you change here
+  is what you would change in the file. A request that needs input (no LLM) opens straight on the form,
+  with its own Cancel button.
+- **Removal is in a collapsed expander** and needs the group's name typed exactly; the delete button stays
+  disabled until it matches. Only groups added from the dashboard are listed.
+
 ## Lessons for future UI work
 
 - **Put padding on the glass wrapper, never on the keyed block.** Streamlit sizes Plotly charts from the

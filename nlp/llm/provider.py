@@ -130,7 +130,14 @@ class OllamaProvider:
         started = time.perf_counter()
         tokens_in = tokens_out = 0
         for attempt in (1, 2):  # small models now and then emit broken JSON; a second sample is usually fine
-            content, payload = self._chat(system, prompt, max_tokens, schema)
+            try:
+                content, payload = self._chat(system, prompt, max_tokens, schema)
+            except LLMUnavailable:
+                raise
+            except LLMError as exc:  # Ollama stops a model stuck repeating itself with a 500: sample again
+                if attempt == 1 and "repeat limit" in str(exc):
+                    continue
+                raise
             tokens_in += int(payload.get("prompt_eval_count") or 0)
             tokens_out += int(payload.get("eval_count") or 0)
             try:

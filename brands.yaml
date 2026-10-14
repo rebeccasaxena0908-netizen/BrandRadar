@@ -180,3 +180,66 @@ brands:
                       art, sketch, drawing, geometry box, kit, school, notebook, eraser, sharpener, sharpner,
                       highlighter, gift box, pack, Kokuyo]
     youtube_queries: [Camlin colours review, Camlin stationery]
+
+  # Skin care products: added from the dashboard on 2026-10-14 (request #4)
+  - name: Nivea
+    group: Skin care products
+    profile: beauty_skincare
+    is_own: true
+    keywords: [nivea]
+    youtube_queries: [Nivea review, Nivea product reviews]
+
+  - name: L'Oréal
+    group: Skin care products
+    profile: beauty_skincare
+    is_own: false
+    keywords: [l'oréal, loréal, loreal, l oreal, l'oreal, l’oréal, l’oreal]
+    youtube_queries: [L'Oréal review, L'Oreal product reviews]
+
+  - name: Dove
+    group: Skin care products
+    profile: beauty_skincare
+    is_own: false
+    keywords: [Dove]
+    exclude: [Dove Cameron, peace dove]
+    exclude_if: [bird, birds, pigeon, pigeons, wings, nest]
+    youtube_queries: [Dove review, Dove soap review]
+
+  - name: Cerave
+    group: Skin care products
+    profile: beauty_skincare
+    is_own: false
+    keywords: [cerave]
+    youtube_queries: [Cerave review, CeraVe skincare reviews]
+
+  # Fast food restaurants: added from the dashboard on 2026-10-14 (request #5)
+  - name: McDonald's
+    group: Fast food restaurants
+    profile: food_beverage
+    is_own: true
+    keywords: [mcdonald's, mcdonalds, mcdonald’s]
+    youtube_queries: [McDonald's review, McDonald's reviews]
+    sources: [youtube, news, reddit, mastodon, appstore, playstore]
+    app_store_id: '922103212'
+    play_store_id: com.mcdonalds.mobileapp
+
+  - name: Burger King
+    group: Fast food restaurants
+    profile: food_beverage
+    is_own: false
+    keywords: [burger king, burgerking]
+    youtube_queries: [Burger King review, Burger King reviews]
+
+  - name: Wendy's
+    group: Fast food restaurants
+    profile: food_beverage
+    is_own: false
+    keywords: [wendy's, wendys, wendy’s]
+    youtube_queries: [Wendy's review, Wendy's reviews]
+
+  - name: Taco Bell
+    group: Fast food restaurants
+    profile: food_beverage
+    is_own: false
+    keywords: [taco bell, tacobell]
+    youtube_queries: [Taco Bell review, Taco Bell reviews]

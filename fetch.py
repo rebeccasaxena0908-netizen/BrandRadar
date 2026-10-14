@@ -14,6 +14,7 @@ import sys
 from collections.abc import Callable, Iterable, Sequence
 from dataclasses import dataclass
 from datetime import datetime, timedelta
+from typing import Any
 
 from sqlalchemy import insert, select, update
 from sqlalchemy.orm import Session, sessionmaker
@@ -149,10 +150,43 @@ def load_brands(factory: sessionmaker[Session], names: Sequence[str] | None = No
 # ---------------------------------------------------------------- running
 
 
+def call_with_deadline(func: Callable[[], Any], seconds: float, name: str = "source", grace: float = 5.0) -> Any:
+    """func() with a wall-clock limit. It runs in a helper thread whose HTTP requests also see the deadline
+    (sources.base.deadline), so it winds down by itself; if it still hasn't returned a few seconds later it
+    is abandoned (its result is never used) and TimeoutError is raised."""
+    import threading
+
+    from sources.base import deadline
+
+    box: dict[str, Any] = {}
+
+    def work() -> None:
+        try:
+            with deadline(seconds):
+                box["value"] = func()
+        except BaseException as exc:  # noqa: BLE001 — handed to the caller below
+            box["error"] = exc
+
+    thread = threading.Thread(target=work, daemon=True, name=f"deadline-{name}")
+    thread.start()
+    thread.join(seconds + grace)
+    if thread.is_alive():
+        raise TimeoutError(f"no answer within {seconds:.0f}s; the next collector cycle tries again")
+    if "error" in box:
+        raise box["error"]
+    return box["value"]
+
+
+def fetch_with_deadline(source: Source, brand: BrandSpec, since: datetime, seconds: float) -> list[RawMention]:
+    return call_with_deadline(lambda: source.fetch(brand, since), seconds, source.name)
+
+
 def run_one(
-    factory: sessionmaker[Session], source: Source, brand: BrandSpec, since: datetime
+    factory: sessionmaker[Session], source: Source, brand: BrandSpec, since: datetime,
+    seconds: float | None = None,
 ) -> RunResult:
-    """Fetch one source for one brand. Never raises: errors end up in fetch_runs.error."""
+    """Fetch one source for one brand. Never raises: errors end up in fetch_runs.error. With `seconds`, the
+    source gets at most that long (fetch_with_deadline)."""
     result = RunResult(source=source.name, brand=brand.name)
     with factory() as session:
         run = FetchRun(source=source.name, brand_id=brand.id, started_at=utc_now(), new_rows=0)
@@ -161,7 +195,7 @@ def run_one(
         run_id = run.id
 
     try:
-        mentions = source.fetch(brand, since)
+        mentions = source.fetch(brand, since) if seconds is None else fetch_with_deadline(source, brand, since, seconds)
         result.fetched = len(mentions)
         with factory() as session:
             result.new_rows = insert_new_mentions(session, brand.id, mentions)

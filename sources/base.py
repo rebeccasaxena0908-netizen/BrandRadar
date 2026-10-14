@@ -305,6 +305,31 @@ def make_session(retries: int | None = None, user_agent: str | None = None) -> r
     return session
 
 
+class DeadlineExceeded(requests.Timeout):
+    """The source ran out of its time budget (see `deadline`)."""
+
+
+_deadline = threading.local()
+
+
+@contextmanager
+def deadline(seconds: float | None) -> Iterator[None]:
+    """Give every HttpClient request made in this thread at most `seconds` in total: each request's timeout
+    shrinks to the time left, and once it is gone the next request fails at once. Used for brands tracked
+    from the dashboard, so a slow source (GDELT, a busy Mastodon instance) can't hold a request up."""
+    previous = getattr(_deadline, "at", None)
+    _deadline.at = None if seconds is None else time.monotonic() + seconds
+    try:
+        yield
+    finally:
+        _deadline.at = previous
+
+
+def time_left() -> float | None:
+    at = getattr(_deadline, "at", None)
+    return None if at is None else at - time.monotonic()
+
+
 class HttpClient:
     """Thin wrapper adding timeouts and per-host rate limiting to a session."""
 
@@ -319,8 +344,12 @@ class HttpClient:
         self.timeout = settings.http_timeout if timeout is None else timeout
 
     def get(self, url: str, params: dict[str, Any] | None = None) -> requests.Response:
+        left = time_left()
+        if left is not None and left <= 0:
+            raise DeadlineExceeded(f"time budget used up before {urlparse(url).netloc}")
         self.limiter.wait(urlparse(url).netloc)
-        response = self.session.get(url, params=params, timeout=self.timeout)
+        timeout = self.timeout if left is None else max(1.0, min(self.timeout, left))
+        response = self.session.get(url, params=params, timeout=timeout)
         response.raise_for_status()
         return response
 

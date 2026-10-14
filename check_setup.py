@@ -375,6 +375,29 @@ def check_reports() -> None:
         report(False, "Read notifications", f"{exc!r} — run db/schema.sql to create the table")
 
 
+def check_tracking() -> None:
+    section("Track a new brand (Step 11)")
+    try:
+        from sqlalchemy import text
+
+        from config import settings
+        from db.session import get_engine
+
+        with get_engine().connect() as conn:
+            rows = conn.execute(text("SELECT kind, status, COUNT(*) FROM brand_requests GROUP BY kind, status")).all()
+            groups = conn.execute(text(
+                "SELECT DISTINCT r.group_name FROM brand_requests r JOIN brands b ON b.brand_group = r.group_name "
+                "WHERE r.kind = 'track' AND r.applied_at IS NOT NULL")).scalars().all()
+    except Exception as exc:  # noqa: BLE001
+        report(False, "brand_requests table", f"{exc!r} — run db/schema.sql")
+        return
+    report(True, "brand_requests table", f"collector checks every {settings.track_poll_seconds} s, "
+           f"at most {settings.track_max_active} in progress, {settings.track_source_seconds:.0f} s per source")
+    counts = ", ".join(f"{n} {kind} {status}" for kind, status, n in rows)
+    print(f"    Requests: {counts or 'none yet'}")
+    print(f"    Groups added from the dashboard: {', '.join(groups) or 'none'}")
+
+
 def main() -> int:
     print("Brand Radar setup check")
     check_python()
@@ -385,6 +408,7 @@ def main() -> int:
         check_brands()
         check_extras()
         check_llm()
+        check_tracking()
         check_reports()
 
     print()

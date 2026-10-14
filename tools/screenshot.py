@@ -81,7 +81,7 @@ def motion_score(page) -> float:
 
 def choose_group(page, group: str) -> None:
     """Pick a brand group in the dashboard's Group selectbox and wait for the rerun."""
-    page.locator('[data-testid="stSelectbox"]').filter(has_text="Group").locator('[data-baseweb="select"]').click()
+    page.locator('.st-key-glass-header [data-testid="stSelectbox"]').filter(has_text="Group").locator('[data-baseweb="select"]').click()
     page.get_by_role("option", name=group, exact=True).click()
     page.wait_for_timeout(1500)
     wait_until_rendered(page, charts=False)

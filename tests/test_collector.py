@@ -306,6 +306,7 @@ def test_notify_failing_alone_never_marks_the_cycle_failed(factory: sessionmaker
 
 def test_weekly_job_is_scheduled_monday_morning_in_india(monkeypatch: pytest.MonkeyPatch) -> None:
     jobs: dict[str, object] = {}
+    options: dict[str, dict[str, object]] = {}
 
     class FakeScheduler:
         def __init__(self, timezone: str) -> None:
@@ -313,6 +314,7 @@ def test_weekly_job_is_scheduled_monday_morning_in_india(monkeypatch: pytest.Mon
 
         def add_job(self, func, trigger=None, **kwargs):  # type: ignore[no-untyped-def]
             jobs[kwargs["id"]] = trigger
+            options[kwargs["id"]] = kwargs
 
         def start(self) -> None:
             raise KeyboardInterrupt
@@ -327,7 +329,9 @@ def test_weekly_job_is_scheduled_monday_morning_in_india(monkeypatch: pytest.Mon
     stages.weekly = lambda: collector.NotifyOutcome("nothing new to send")
     collector.run_forever(None, stages, 6)  # type: ignore[arg-type]
     trigger = jobs["weekly"]
-    assert set(jobs) == {"cycle", "weekly"}
+    assert set(jobs) == {"cycle", "weekly", "requests"}  # requests: the dashboard's "Track a new brand" job
+    assert jobs["requests"] == "interval" and options["requests"]["seconds"] == collector.settings.track_poll_seconds
+    assert options["requests"]["max_instances"] == 1
     assert str(trigger.timezone) == "Asia/Kolkata"  # type: ignore[attr-defined]
     fields = {f.name: str(f) for f in trigger.fields}  # type: ignore[attr-defined]
     assert (fields["day_of_week"], fields["hour"], fields["minute"]) == ("mon", "8", "0")

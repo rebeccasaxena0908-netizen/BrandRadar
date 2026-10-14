@@ -1,7 +1,11 @@
 """Scheduled collector: fetch -> NLP -> topics -> priority, every COLLECTOR_INTERVAL_HOURS.
 
-    python collector.py           # run a cycle now, then every N hours, until Ctrl+C
-    python collector.py --once    # one cycle, then exit
+    python collector.py                  # run a cycle now, then every N hours, until Ctrl+C
+    python collector.py --once           # one cycle, then exit
+    python collector.py --requests-once  # work through the dashboard's "Track a new brand" requests, then exit
+
+Besides the cycle, a small job checks every TRACK_POLL_SECONDS for brands requested in the dashboard
+(tracking/worker.py). The cycle and that job share HEAVY, so only one of them loads models at a time.
 
 Memory (8 GB Mac): the NLP and topic stages run in a short-lived child process, so the models (and
 the MPS cache) are only loaded while there is work and are fully returned to the OS afterwards; the
@@ -41,6 +45,9 @@ LOCK_FILE = PROJECT_ROOT / ".collector.lock"
 # Set by Ctrl+C. A running cycle checks it between stages and while waiting for a child process,
 # stops the child and records the cycle as interrupted, so the collector exits promptly.
 STOP = threading.Event()
+# Held by the cycle and by the request job's heavy steps (research, dry-run, the new group's pipeline):
+# Ollama, the NLP models and BERTopic must never run side by side on an 8 GB Mac.
+HEAVY = threading.Lock()
 FETCH_OVERLAP = timedelta(hours=24)  # re-read a day of overlap: dedupe makes it free, late reviews get caught
 MAX_ERROR_LENGTH = 10_000
 
@@ -275,7 +282,8 @@ def run_in_child(func: Callable[[], Any], poll: float = 0.5) -> Any:
     STOP terminates it."""
     ctx = multiprocessing.get_context("spawn")
     results = ctx.Queue()
-    child = ctx.Process(target=_child_entry, args=(func, results), daemon=True, name=f"collector-{func.__name__}")
+    name = getattr(func, "__name__", None) or getattr(getattr(func, "func", None), "__name__", "stage")  # partial
+    child = ctx.Process(target=_child_entry, args=(func, results), daemon=True, name=f"collector-{name}")
     child.start()
     try:
         while True:
@@ -485,6 +493,8 @@ def install_signal_handlers() -> None:
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--once", action="store_true", help="run one cycle and exit")
+    parser.add_argument("--requests-once", action="store_true",
+                        help="work through pending 'Track a new brand' requests, then exit")
     parser.add_argument("--interval-hours", type=float, default=settings.collector_interval_hours,
                         help=f"hours between cycles (default {settings.collector_interval_hours:g}, COLLECTOR_INTERVAL_HOURS)")
     args = parser.parse_args(argv)
@@ -504,6 +514,10 @@ def main(argv: list[str] | None = None) -> int:
             factory = get_session_factory()
             if (n := mark_interrupted(factory)):
                 log.info("marked %d interrupted cycle(s) as failed", n)
+            if args.requests_once:
+                for line in request_worker(factory).run_until_idle():
+                    log.info("requests %s", line)
+                return 0
             stages = real_stages(factory)
             if args.once:
                 return 0 if run_cycle(factory, stages).status != "failed" else 1
@@ -516,15 +530,37 @@ def main(argv: list[str] | None = None) -> int:
         return 0
 
 
+def request_worker(factory: sessionmaker[Session]) -> Any:
+    from tracking.worker import Worker
+
+    return Worker(factory, heavy=HEAVY, runner=run_in_child, stop=STOP)
+
+
+def locked_cycle(factory: sessionmaker[Session], stages: Stages) -> CycleResult:
+    with HEAVY:  # waits for a request's heavy step to finish first
+        return run_cycle(factory, stages)
+
+
 def run_forever(factory: sessionmaker[Session], stages: Stages, interval_hours: float) -> int:
     from apscheduler.schedulers.blocking import BlockingScheduler
 
     scheduler = BlockingScheduler(timezone="UTC")
     scheduler.add_job(
-        run_cycle, "interval", hours=interval_hours, args=(factory, stages), id="cycle",
+        locked_cycle, "interval", hours=interval_hours, args=(factory, stages), id="cycle",
         next_run_time=datetime.now().astimezone(),  # first cycle right away
         max_instances=1, coalesce=True, misfire_grace_time=3600,
     )
+    worker = request_worker(factory)
+
+    def requests_job() -> None:
+        try:
+            if (line := worker.tick()):
+                log.info("requests %s", line)
+        except Exception as exc:  # noqa: BLE001 — a broken request must not stop the collector
+            log.error("requests FAILED  %s: %s", type(exc).__name__, exc)
+
+    scheduler.add_job(requests_job, "interval", seconds=settings.track_poll_seconds, id="requests",
+                      max_instances=1, coalesce=True, misfire_grace_time=settings.track_poll_seconds)
     if stages.weekly is not None:
         from apscheduler.triggers.cron import CronTrigger
 
@@ -540,7 +576,8 @@ def run_forever(factory: sessionmaker[Session], stages: Stages, interval_hours: 
         scheduler.add_job(weekly_job, CronTrigger(day_of_week="mon", hour=settings.notify_weekly_hour, minute=0,
                                                   timezone=settings.notify_timezone),
                           id="weekly", max_instances=1, coalesce=True, misfire_grace_time=6 * 3600)
-    log.info("collector started: a cycle every %g h; Ctrl+C to stop", interval_hours)
+    log.info("collector started: a cycle every %g h, brand requests checked every %d s; Ctrl+C to stop",
+             interval_hours, settings.track_poll_seconds)
     try:
         scheduler.start()
     except (KeyboardInterrupt, SystemExit):

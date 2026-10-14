@@ -444,19 +444,59 @@ def add_brand(path: Path, ask: Any = input, say: Any = print, edit: Any = None, 
                        group=group, profile=profile, require_context=require_context,
                        youtube_queries=youtube_queries, sources=chosen or None,
                        app_store_id=app_store_id, play_store_id=play_store_id)
-    block = _yaml_block(entry)
-    current = path.read_text(encoding="utf-8")
-    candidate = current.rstrip("\n") + "\n" + block
+    block = append_entries(path, [entry])
+    say(f"\nAdded to {path.name}:{block}")
+    return entry
+
+
+def _write_checked(path: Path, text: str) -> None:
+    """Replace the file only if the whole result still loads (one own brand per group, known profile…)."""
     tmp = path.with_suffix(".yaml.new")
-    tmp.write_text(candidate, encoding="utf-8")
+    tmp.write_text(text, encoding="utf-8")
     try:
-        load_yaml(tmp)  # the whole file must still be valid (one own brand per group, known profile…)
+        load_yaml(tmp)
     except Exception:
         tmp.unlink(missing_ok=True)
         raise
     tmp.replace(path)
-    say(f"\nAdded to {path.name}:{block}")
-    return entry
+
+
+def append_entries(path: Path, entries: Sequence[BrandEntry], comment: str | None = None) -> str:
+    """Append brands to brands.yaml (validated together with the existing ones); returns the added text.
+    Used by `add` and by the collector when a brand tracked from the dashboard is approved."""
+    block = (f"\n  # {comment}" if comment else "") + "".join(_yaml_block(e) for e in entries)
+    _write_checked(path, path.read_text(encoding="utf-8").rstrip("\n") + "\n" + block)
+    return block
+
+
+def remove_group_entries(path: Path, group: str) -> list[str]:
+    """Delete every brand of `group` from brands.yaml, with the comment lines right above each block (the
+    "# added from the dashboard" line). Other text is kept as it is. Returns the removed brand names."""
+    lines = path.read_text(encoding="utf-8").splitlines(keepends=True)
+    starts = [i for i, line in enumerate(lines) if re.match(r"  - name:", line)]
+    if not starts:
+        return []
+    ends = starts[1:] + [len(lines)]
+    data = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
+    blocks = data.get("brands") or []
+    if len(blocks) != len(starts):
+        raise ValueError(f"{path.name}: could not line up its brand blocks; remove {group!r} by hand")
+    drop: set[int] = set()
+    removed: list[str] = []
+    for raw, start, end in zip(blocks, starts, ends):
+        if str(raw.get("group") or "Default").strip() != group:
+            continue
+        removed.append(str(raw["name"]))
+        first = start
+        while first > 0 and lines[first - 1].strip().startswith("#") and lines[first - 1].startswith("  #"):
+            first -= 1
+        while first > 0 and not lines[first - 1].strip():  # the blank line before the block
+            first -= 1
+        drop.update(range(first, end))
+    if removed:
+        kept = "".join(line for i, line in enumerate(lines) if i not in drop)
+        _write_checked(path, kept.rstrip("\n") + "\n")
+    return removed
 
 
 def add_main(argv: Sequence[str]) -> int:
